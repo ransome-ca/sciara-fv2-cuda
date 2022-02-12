@@ -1,7 +1,5 @@
 #!/bin/python
 
-# Draw heatmap from a file
-
 import sys
 import numpy as np
 import matplotlib.pyplot as plt

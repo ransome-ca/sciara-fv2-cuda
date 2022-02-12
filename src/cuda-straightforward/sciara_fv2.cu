@@ -1,15 +1,15 @@
-#include "cal2DBuffer.h"
-#include "configurationPathLib.h"
-#include "GISInfo.h"
-#include "io.h"
-#include "vent.h"
+#include "cal2DBuffer.cuh"
+#include "configurationPathLib.cuh"
+#include "GISInfo.cuh"
+#include "io.cuh"
+#include "vent.cuh"
 #include <omp.h>
 #include <new>
-#include "Sciara.h"
+#include "Sciara.cuh"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "util.hpp"
+#include "util.cu"
 
 // ----------------------------------------------------------------------------
 // I/O parameters used to index argv[]
@@ -53,10 +53,12 @@ void emitLava(
   for (int k = 0; k < vent.size(); k++)
     if (i == vent[k].y() && j == vent[k].x()) 
     {
-      SET(Sh_next, c, i, j, GET(Sh, c, i, j) + vent[k].thickness(elapsed_time, Pclock, emission_time, Pac));
+      double t = vent[k].thickness(elapsed_time, Pclock, emission_time, Pac);
+
+      SET(Sh_next, c, i, j, GET(Sh, c, i, j) + t);
       SET(ST_next, c, i, j, PTvent); 
 
-      total_emitted_lava += vent[k].thickness(elapsed_time, Pclock, emission_time, Pac);
+      total_emitted_lava += t;
     }
 }
 
@@ -85,7 +87,6 @@ void computeOutflows (
   double theta[MOORE_NEIGHBORS];
   double w[MOORE_NEIGHBORS];		//Distances between central and adjecent cells
   double Pr[MOORE_NEIGHBORS];		//Relaiation rate arraj
-  double f[MOORE_NEIGHBORS];
   bool loop;
   int counter;
   double sz0, sz, T, avg, rr, hc;
@@ -156,7 +157,7 @@ void computeOutflows (
       BUF_SET(Mf,r,c,k-1,i,j,0.0);
 }
 
-
+__device__ __host__
 void massBalance(
     int i, 
     int j, 
@@ -196,6 +197,7 @@ void massBalance(
     SET(ST_next,c,i,j,t_next);
     SET(Sh_next,c,i,j,h_next);
   }
+
 }
 
 
@@ -275,6 +277,40 @@ double reduceAdd(int r, int c, double* buffer)
   return sum;
 }
 
+
+
+
+
+
+
+__global__
+void massBalance_kernel(
+    int r, 
+    int c, 
+    int* Xi, 
+    int* Xj, 
+    double *Sh, 
+    double *Sh_next, 
+    double *ST,
+    double *ST_next,
+    double *Mf) {
+  
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (i > 0 && j > 0 && i < r - 1 && j < c - 1)
+    massBalance(i, j, r, c, Xi, Xj, Sh, Sh_next, ST, ST_next, Mf);
+
+}
+
+
+
+
+
+
+
+
+
 // ----------------------------------------------------------------------------
 // Function main()
 // ----------------------------------------------------------------------------
@@ -290,6 +326,19 @@ int main(int argc, char **argv)
   // Domain boundaries and neighborhood
   int i_start = 0, i_end = sciara->domain->rows;        // [i_start,i_end[: kernels application range along the rows
   int j_start = 0, j_end = sciara->domain->cols;        // [j_start,j_end[: kernels application range along the cols
+
+  size_t M = sciara->domain->rows;
+  size_t N = sciara->domain->cols;
+  size_t THREADS_PER_BLOCK = 8;
+  size_t GRID_STRIDE_SIZE = 1;
+
+  dim3 threads(THREADS_PER_BLOCK, THREADS_PER_BLOCK);
+
+  dim3 grid (
+      fmax(1, ceil(double(M) / THREADS_PER_BLOCK / GRID_STRIDE_SIZE)),
+      fmax(1, ceil(double(N) / THREADS_PER_BLOCK / GRID_STRIDE_SIZE))
+  );
+
 
 
   // simulation initialization and loop
@@ -308,6 +357,13 @@ int main(int argc, char **argv)
     sciara->simulation->elapsed_time += sciara->parameters->Pclock;
     sciara->simulation->step++;
 
+    if(sciara->simulation->step % 100 == 0) {
+    fprintf(stderr, "\rStep: %d (%d %%) [%f / %f m]", 
+      sciara->simulation->step, 
+      int(100.0 * sciara->simulation->elapsed_time / sciara->simulation->effusion_duration), 
+      total_current_lava, 
+      thickness_threshold);
+    }
 
     // Apply the emitLava kernel to the whole domain and update the Sh and ST state variables
 #pragma omp parallel for
@@ -350,22 +406,49 @@ int main(int argc, char **argv)
             sciara->parameters->d);
 
 
+
+
+
+    // cudaMemcpy(Xi, sciara->X->Xi, sizeof(int)*MOORE_NEIGHBORS, cudaMemcpyHostToDevice);
+    // cudaMemcpy(Xj, sciara->X->Xj, sizeof(int)*MOORE_NEIGHBORS, cudaMemcpyHostToDevice);
+    // cudaMemcpy(Sh, sciara->substates->Sh, sizeof(double)*sciara->domain->rows*sciara->domain->cols, cudaMemcpyHostToDevice);
+    // cudaMemcpy(Sh_next, sciara->substates->Sh_next, sizeof(double)*sciara->domain->rows*sciara->domain->cols, cudaMemcpyHostToDevice);
+    // cudaMemcpy(ST, sciara->substates->ST, sizeof(double)*sciara->domain->rows*sciara->domain->cols, cudaMemcpyHostToDevice);
+    // cudaMemcpy(ST_next, sciara->substates->ST_next, sizeof(double)*sciara->domain->rows*sciara->domain->cols, cudaMemcpyHostToDevice);
+    // cudaMemcpy(Mf, sciara->substates->Mf, sizeof(double)*sciara->domain->rows*sciara->domain->cols * NUMBER_OF_OUTFLOWS, cudaMemcpyHostToDevice);
+
     // Apply the massBalance mass balance kernel to the whole domain and update the Sh and ST state variables
-#pragma omp parallel for
-    for (int i = i_start; i < i_end; i++)
-      for (int j = j_start; j < j_end; j++)
-        massBalance(i, j,
-            sciara->domain->rows, 
-            sciara->domain->cols, 
-            sciara->X->Xi, 
-            sciara->X->Xj, 
-            sciara->substates->Sh, 
-            sciara->substates->Sh_next, 
-            sciara->substates->ST, 
-            sciara->substates->ST_next, 
-            sciara->substates->Mf);
+    massBalance_kernel<<<grid, threads>>>(
+        sciara->domain->rows, 
+        sciara->domain->cols, 
+        sciara->X->Xi, 
+        sciara->X->Xj, 
+        sciara->substates->Sh, 
+        sciara->substates->Sh_next, 
+        sciara->substates->ST, 
+        sciara->substates->ST_next, 
+        sciara->substates->Mf);
+
+    // for(size_t i = 1; i < sciara->domain->rows - 1; i++) {
+    //   for(size_t j = 1; j < sciara->domain->cols - 1; j++) {
+    //     massBalance(
+    //         i, j, 
+    //         sciara->domain->rows, 
+    //         sciara->domain->cols, 
+    //         sciara->X->Xi, 
+    //         sciara->X->Xj, 
+    //         sciara->substates->Sh, 
+    //         sciara->substates->Sh_next, 
+    //         sciara->substates->ST, 
+    //         sciara->substates->ST_next, 
+    //         sciara->substates->Mf);
+    //   }
+    // }
+
+    cudaDeviceSynchronize();
+
     memcpy(sciara->substates->Sh, sciara->substates->Sh_next, sizeof(double)*sciara->domain->rows*sciara->domain->cols);
-    memcpy(sciara->substates->ST,  sciara->substates->ST_next,  sizeof(double)*sciara->domain->rows*sciara->domain->cols);
+    memcpy(sciara->substates->ST, sciara->substates->ST_next, sizeof(double)*sciara->domain->rows*sciara->domain->cols);
 
 
     // Apply the computeNewTemperatureAndSolidification kernel to the whole domain

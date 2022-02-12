@@ -1,32 +1,43 @@
-#include "Sciara.h"
-#include "cal2DBuffer.h"
+#include "Sciara.cuh"
+#include "cal2DBuffer.cuh"
 
 void allocateSubstates(Sciara *sciara)
 {
-	sciara->substates->Sz       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-  sciara->substates->Sz_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-	sciara->substates->Sh       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-  sciara->substates->Sh_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-	sciara->substates->ST       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-  sciara->substates->ST_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
-	sciara->substates->Mf       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols*NUMBER_OF_OUTFLOWS];
-//sciara->substates->Mv       = new (std::nothrow)    int[sciara->domain->rows*sciara->domain->cols];
-	sciara->substates->Mb       = new (std::nothrow)   bool[sciara->domain->rows*sciara->domain->cols];
-	sciara->substates->Mhs      = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+
+  cudaMallocManaged(&sciara->substates->Sz, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->Sz_next, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->Sh, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->Sh_next, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->ST, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->ST_next, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  cudaMallocManaged(&sciara->substates->Mf, sciara->domain->rows*sciara->domain->cols*NUMBER_OF_OUTFLOWS*sizeof(double));
+  cudaMallocManaged(&sciara->substates->Mb, sciara->domain->rows*sciara->domain->cols*sizeof(bool));
+  cudaMallocManaged(&sciara->substates->Mhs, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+
+  memset(sciara->substates->Sz,       0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->Sz_next,  0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->Sh,       0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->Sh_next,  0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->ST,       0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->ST_next,  0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+  memset(sciara->substates->Mf,       0, sciara->domain->rows*sciara->domain->cols*NUMBER_OF_OUTFLOWS*sizeof(double));
+  memset(sciara->substates->Mb,       0, sciara->domain->rows*sciara->domain->cols*sizeof(bool));
+  memset(sciara->substates->Mhs,      0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
+
 }
 
 void deallocateSubstates(Sciara *sciara)
 {
-	if(sciara->substates->Sz)       delete[] sciara->substates->Sz;
-  if(sciara->substates->Sz_next)  delete[] sciara->substates->Sz_next;
-	if(sciara->substates->Sh)       delete[] sciara->substates->Sh;
-  if(sciara->substates->Sh_next)  delete[] sciara->substates->Sh_next;
-	if(sciara->substates->ST)       delete[] sciara->substates->ST;
-  if(sciara->substates->ST_next)  delete[] sciara->substates->ST_next;
-	if(sciara->substates->Mf)       delete[] sciara->substates->Mf;
-//if(sciara->substates->Mv)       delete[] sciara->substates->Mv;
-	if(sciara->substates->Mb)       delete[] sciara->substates->Mb;
-	if(sciara->substates->Mhs)      delete[] sciara->substates->Mhs;
+// 	if(sciara->substates->Sz)       delete[] sciara->substates->Sz;
+//   if(sciara->substates->Sz_next)  delete[] sciara->substates->Sz_next;
+// 	if(sciara->substates->Sh)       delete[] sciara->substates->Sh;
+//   if(sciara->substates->Sh_next)  delete[] sciara->substates->Sh_next;
+// 	if(sciara->substates->ST)       delete[] sciara->substates->ST;
+//   if(sciara->substates->ST_next)  delete[] sciara->substates->ST_next;
+// 	if(sciara->substates->Mf)       delete[] sciara->substates->Mf;
+// //if(sciara->substates->Mv)       delete[] sciara->substates->Mv;
+// 	if(sciara->substates->Mb)       delete[] sciara->substates->Mb;
+// 	if(sciara->substates->Mhs)      delete[] sciara->substates->Mhs;
 }
 
 
@@ -81,8 +92,10 @@ void init(Sciara*& sciara)
   sciara->domain = new Domain;
 
   sciara->X = new NeighsRelativeCoords;
-  sciara->X->Xi = new int[MOORE_NEIGHBORS];
-  sciara->X->Xj = new int[MOORE_NEIGHBORS];
+
+  cudaMallocManaged(&sciara->X->Xi, MOORE_NEIGHBORS*sizeof(int));
+  cudaMallocManaged(&sciara->X->Xj, MOORE_NEIGHBORS*sizeof(int));
+
   for (int n=0; n<MOORE_NEIGHBORS; n++)
   {
     sciara->X->Xi[n] = _Xi[n];
@@ -99,8 +112,8 @@ void finalize(Sciara*& sciara)
 {
   deallocateSubstates(sciara);
   delete sciara->domain;
-  delete sciara->X->Xi;
-  delete sciara->X->Xj;
+  // delete sciara->X->Xi;
+  // delete sciara->X->Xj;
   delete sciara->X;
   delete sciara->substates;
   delete sciara->parameters;

@@ -1,8 +1,8 @@
 #ifndef CA_H_
 #define CA_H_
 
-#include "GISInfo.cuh"
-#include "vent.cuh"
+#include "GISInfo.h"
+#include "vent.h"
 #include <math.h>
 #include <stdlib.h>
 

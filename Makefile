@@ -4,7 +4,7 @@ THREADS	    		?= 2
 
 INPUT_CONFIG		:= ./data/2006/2006_000000000000.cfg
 OUTPUT_CONFIG		:= ./data/2006/output_2006
-OUTPUT				:= ./data/2006/output_2006_000000016000_Temperature.stt  #md5sum: 0c071cd864046d3c6aaf30997290ad6c
+OUTPUT				:= ./data/2006/output_2006_000000016000_Temperature.stt  #md5sum: 0c071cd864046d3c6aaf30997290ad6c   /   704a4a65d1890589e952b155d53b110d
 STEPS				:= 1000
 REDUCE_INTERVL		:= 1000
 THICKNESS_THRESHOLD := 1.0  #resulting in 16000 steps
