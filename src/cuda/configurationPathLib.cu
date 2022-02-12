@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "configurationPathLib.h"
+#include "configurationPathLib.cuh"
 
 
 char * strrev (char * string)
