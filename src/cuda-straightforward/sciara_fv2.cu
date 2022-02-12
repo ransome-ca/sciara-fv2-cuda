@@ -38,7 +38,7 @@
 // ----------------------------------------------------------------------------
 
 __device__
-float emitLava(
+double emitLava(
     int i,
     int j,
     int r,
@@ -66,7 +66,7 @@ float emitLava(
 
     if (vent)
     {
-      float t = vent->thickness(elapsed_time, Pclock, emission_time, Pac);
+      double t = vent->thickness(elapsed_time, Pclock, emission_time, Pac);
 
       SET(Sh_next, c, i, j, GET(Sh, c, i, j) + t);
       SET(ST_next, c, i, j, PTvent); 
@@ -75,7 +75,7 @@ float emitLava(
 
     }
 
-    return .0f;
+    return .0;
 
 }
 
@@ -293,7 +293,7 @@ void emitLava_kernel(
     double* Sh_next,
     double* ST_next) {
 
-  __shared__ float s_acc[BLKSIZE][BLKSIZE];
+  __shared__ double s_acc[BLKSIZE][BLKSIZE];
 
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -307,7 +307,7 @@ void emitLava_kernel(
 
     if(threadIdx.x == 0 && threadIdx.y == 0) {
       
-      float v = 0.0f;
+      double v = 0.0;
 
       for(size_t y = 0; y < BLKSIZE; y++) {
         for(size_t x = 0; x < BLKSIZE; x++) {
@@ -315,9 +315,13 @@ void emitLava_kernel(
         }
       }
 
-      atomicAdd(total_emitted_lava, v);
+      atomicAdd(total_emitted_lava, (float) v);
       
     }
+
+  } else {
+
+    s_acc[threadIdx.y][threadIdx.x] = 0.0f;
 
   }
 
@@ -417,7 +421,7 @@ void memcpy_gpu(double *dst, double *src, int r, int c) {
 __global__
 void reduceAdd_kernel(size_t r, size_t c, double* buffer, float* acc) {
 
-  __shared__ float s_acc[BLKSIZE][BLKSIZE];
+  __shared__ double s_acc[BLKSIZE][BLKSIZE];
 
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -430,7 +434,7 @@ void reduceAdd_kernel(size_t r, size_t c, double* buffer, float* acc) {
 
     if(threadIdx.x == 0 && threadIdx.y == 0) {
       
-      float v = 0.0f;
+      double v = 0.0;
 
       for(size_t y = 0; y < BLKSIZE; y++) {
         for(size_t x = 0; x < BLKSIZE; x++) {
@@ -438,9 +442,13 @@ void reduceAdd_kernel(size_t r, size_t c, double* buffer, float* acc) {
         }
       }
 
-      atomicAdd(acc, v);
+      atomicAdd(acc, (float) v);
       
     }
+
+  } else {
+
+    s_acc[threadIdx.y][threadIdx.x] = 0.0;
 
   }
 

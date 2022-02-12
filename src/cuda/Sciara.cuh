@@ -86,7 +86,7 @@ typedef struct
 	vector<TEmissionRate> emission_rate;
 	vector<TVent> vent;
 	double effusion_duration;
-  double total_emitted_lava;
+  float total_emitted_lava;
 
 	double stopping_threshold;	//se negativa non si effettua il controllo sulla pausa
 	int    refreshing_step;	//I thread grafici vengono avviati ogni repaint_step passi
