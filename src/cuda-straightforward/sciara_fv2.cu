@@ -12,7 +12,7 @@
 #include "util.cu"
 
 
-#define BLKSIZE     8
+#define BLKSIZE     16
 
 // ----------------------------------------------------------------------------
 // I/O parameters used to index argv[]
@@ -80,7 +80,7 @@ double emitLava(
 }
 
 
-__device__ __host__
+__device__
 void computeOutflows (
     int i, 
     int j, 
@@ -128,7 +128,7 @@ void computeOutflows (
     if (k < VON_NEUMANN_NEIGHBORS)
       z[k] = sz;
     else
-      z[k] = sz0 - (sz0 - sz) / sqrt(2.0);
+      z[k] = sz0 - (sz0 - sz) * __drcp_rn(sqrt(2.0));
   }
 
   H[0] = z[0];
@@ -138,7 +138,7 @@ void computeOutflows (
     if (z[0] + h[0] > z[k] + h[k])
     {
       H[k] = z[k] + h[k];
-      theta[k] = atan(((z[0] + h[0]) - (z[k] + h[k])) / w[k]);
+      theta[k] = atan(((z[0] + h[0]) - (z[k] + h[k])) * __drcp_rn(w[k]));
       eliminated[k] = false;
     } 
     else
@@ -159,7 +159,7 @@ void computeOutflows (
         counter++;
       }
     if (counter != 0)
-      avg = avg / double(counter);
+      avg = avg * __drcp_rn(double(counter));
     for (int k = 0; k < MOORE_NEIGHBORS; k++)
       if (!eliminated[k] && avg <= H[k])
       {
@@ -175,7 +175,7 @@ void computeOutflows (
       BUF_SET(Mf,r,c,k-1,i,j,0.0);
 }
 
-__device__ __host__
+__device__
 void massBalance(
     int i, 
     int j, 
@@ -211,14 +211,14 @@ void massBalance(
 
   if (h_next > 0)
   {
-    t_next /= h_next;
+    t_next *= __drcp_rn(h_next);
     SET(ST_next,c,i,j,t_next);
     SET(Sh_next,c,i,j,h_next);
   }
 
 }
 
-__device__ __host__
+__device__
 void computeNewTemperatureAndSolidification(
     int i, 
     int j, 
@@ -249,8 +249,8 @@ void computeNewTemperatureAndSolidification(
 
   if (h > 0 && GET(Mb,c,i,j) == false ) 
   {
-    aus = 1.0 + (3 * pow(T, 3.0) * Pepsilon * Psigma * Pclock * Pcool) / (Prho * Pcv * h * Pac);
-    nT = T / pow(aus, 1.0 / 3.0);
+    aus = 1.0 + (3 * pow(T, 3.0) * Pepsilon * Psigma * Pclock * Pcool) * __drcp_rn((Prho * Pcv * h * Pac));
+    nT = T * __drcp_rn(pow(aus, 1.0 * __drcp_rn(3.0)));
 
     if (nT > PTsol) // no solidification
       SET(ST_next,c,i,j, nT);
