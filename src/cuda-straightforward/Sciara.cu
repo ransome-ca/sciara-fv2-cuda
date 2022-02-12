@@ -14,6 +14,16 @@ void allocateSubstates(Sciara *sciara)
   cudaMallocManaged(&sciara->substates->Mb, sciara->domain->rows*sciara->domain->cols*sizeof(bool));
   cudaMallocManaged(&sciara->substates->Mhs, sciara->domain->rows*sciara->domain->cols*sizeof(double));
 
+  // sciara->substates->Sz       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->Sz_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->Sh       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->Sh_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->ST       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->ST_next  = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->Mf       = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols*NUMBER_OF_OUTFLOWS];
+  // sciara->substates->Mb       = new (std::nothrow)   bool[sciara->domain->rows*sciara->domain->cols];
+  // sciara->substates->Mhs      = new (std::nothrow) double[sciara->domain->rows*sciara->domain->cols];
+
   memset(sciara->substates->Sz,       0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
   memset(sciara->substates->Sz_next,  0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
   memset(sciara->substates->Sh,       0, sciara->domain->rows*sciara->domain->cols*sizeof(double));
@@ -93,8 +103,9 @@ void init(Sciara*& sciara)
 
   sciara->X = new NeighsRelativeCoords;
 
-  cudaMallocManaged(&sciara->X->Xi, MOORE_NEIGHBORS*sizeof(int));
-  cudaMallocManaged(&sciara->X->Xj, MOORE_NEIGHBORS*sizeof(int));
+  cudaMallocManaged(&sciara->X->Xi, sizeof(int) * MOORE_NEIGHBORS);
+  cudaMallocManaged(&sciara->X->Xj, sizeof(int) * MOORE_NEIGHBORS);
+
 
   for (int n=0; n<MOORE_NEIGHBORS; n++)
   {

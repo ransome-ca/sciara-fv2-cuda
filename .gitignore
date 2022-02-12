@@ -31,5 +31,5 @@
 *.out
 *.app
 
-/data/output_*
+/data/2006/output_*
 /sciara-fv2-*
