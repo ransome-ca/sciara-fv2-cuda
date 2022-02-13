@@ -12,7 +12,7 @@
 #include "util.cu"
 
 
-#define BLKSIZE     16
+#define BLKSIZE     8
 
 // ----------------------------------------------------------------------------
 // I/O parameters used to index argv[]
@@ -263,17 +263,6 @@ void computeNewTemperatureAndSolidification(
     }
 
   }
-}
-
-__host__ __device__
-float reduceAdd(int r, int c, double* buffer)
-{
-  float sum = 0.0;
-  for (int i = 0; i < r; i++)
-    for (int j = 0; j < c; j++)
-      sum += GET(buffer,c,i,j);
-
-  return sum;
 }
 
 

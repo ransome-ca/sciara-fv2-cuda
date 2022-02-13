@@ -33,7 +33,7 @@ CUDA_TILED_HALO			:= sciara-fv2-cuda-tiled-halo
 CUDA_TILED_NO_HALO		:= sciara-fv2-cuda-tiled-no-halo
 
 CXXFLAGS	:=-O3
-CUFLAGS		:=-O3 -I src/cuda -fmad=false
+CUFLAGS		:=-O3 -I src/cuda -gencode=arch=compute_52,code="compute_52" -fmad=false -maxrregcount=32
 
 
 all: $(SERIAL) $(PARALLEL) $(CUDA)
