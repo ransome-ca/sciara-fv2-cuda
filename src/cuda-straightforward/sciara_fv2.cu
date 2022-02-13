@@ -395,7 +395,7 @@ int main(int argc, char** argv) {
 
 #if defined(DEBUG)
 
-    char* __argv[] = {
+    const char* __argv[] = {
         argv[0],
         "8",
         "./data/2006/2006_000000000000.cfg",
@@ -407,7 +407,7 @@ int main(int argc, char** argv) {
     };
 
     argc = 7;
-    argv = &__argv[0];
+    argv = const_cast<char**>(&__argv[0]);
 
 #endif
 
