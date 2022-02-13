@@ -2,6 +2,9 @@
     "files.associations": {
         "*.asp": "asp",
         "*.qasp": "asp",
-        "new": "cpp"
+        "new": "cpp",
+        "stdexcept": "cpp",
+        "*.tcc": "cpp",
+        "cmath": "cpp"
     }
 }
