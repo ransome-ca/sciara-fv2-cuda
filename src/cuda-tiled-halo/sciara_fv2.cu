@@ -51,6 +51,7 @@ void emit_lava (
     double PTvent,
     double* Sh,
     double* ST,
+    double* ST_next,
     float* total_emitted_lava
 ) {
 
@@ -76,6 +77,7 @@ void emit_lava (
 
                 SET(Sh, c, i, j, sh_local + v);
                 SET(ST, c, i, j, PTvent);
+                SET(ST_next, c, i, j, PTvent);
 
                 if(v != 0.0) {
                     atomicAdd(total_emitted_lava, v);
@@ -246,6 +248,7 @@ void mass_balance (
     size_t c,
     double* Sh,
     double* ST,
+    double* ST_next,
     double* Mf
 ) {
 
@@ -256,26 +259,6 @@ void mass_balance (
 
 
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
-
-
-        if(threadIdx.y == 0) {
-           halo_left[threadIdx.x] = GET(ST, c, i, j - 1); 
-        }
-
-        if(threadIdx.y == blockDim.y - 1) {
-           halo_right[threadIdx.x] = GET(ST, c, i, j + 1); 
-        }
-
-        if(threadIdx.x == 0) {
-           halo_top[threadIdx.y] = GET(ST, c, i - 1, j); 
-        }
-
-        if(threadIdx.x == blockDim.x - 1) {
-           halo_bottom[threadIdx.y] = GET(ST, c, i + 1, j); 
-        }
-
-        __syncthreads();
-
 
         double t_initial = GET(ST, c, i, j);
         double h_initial = GET(Sh, c, i, j);
@@ -309,7 +292,7 @@ void mass_balance (
 
             t_next = DIV(t_next, h_next);
 
-            SET(ST, c, i, j, t_next);
+            SET(ST_next, c, i, j, t_next);
             SET(Sh, c, i, j, h_next);
 
         }
@@ -333,7 +316,6 @@ void compute_new_temperature_and_solidification (
     double Pac,
     double PTsol,
     double *Sz,
-    double *Sz_next,
     double *Sh,
     double *ST,
     double *ST_next,
@@ -364,12 +346,15 @@ void compute_new_temperature_and_solidification (
 
             if(nT > PTsol) {
 
+                SET(ST, c, i, j, nT);
                 SET(ST_next, c, i, j, nT);
             
             } else {
 
-                SET(Sz_next, c, i, j, z + h);
+                SET(Sz, c, i, j, z + h);
                 SET(Sh, c, i, j, 0.0);
+
+                SET(ST, c, i, j, PTsol);
                 SET(ST_next, c, i, j, PTsol);
 
                 SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
@@ -598,9 +583,6 @@ int main(int argc, char** argv) {
             total_emitted_lava
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
-
-
 
         compute_outflows<<<grid, threads>>> (
             M, N,
@@ -639,7 +621,6 @@ int main(int argc, char** argv) {
             sciara->parameters->Pac,
             sciara->parameters->PTsol,
             sciara->substates->Sz,
-            sciara->substates->Sz_next,
             sciara->substates->Sh,
             sciara->substates->ST,
             sciara->substates->ST_next,
@@ -648,8 +629,6 @@ int main(int argc, char** argv) {
             sciara->substates->Mb
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sz, sciara->substates->Sz_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
         cudaDeviceSynchronize();
 
