@@ -50,15 +50,21 @@ void emit_lava (
     double Pac,
     double PTvent,
     double* Sh,
-    double* Sh_next,
-    double* ST_next,
+    double* ST,
     float* total_emitted_lava
 ) {
 
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
 
+
     if(i < r && j < c) {
+
+
+        double sh_local = GET(Sh, c, i, j);
+
+        __syncwarp();    
+
 
         constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
 
@@ -68,8 +74,8 @@ void emit_lava (
 
                 double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
 
-                SET(Sh_next, c, i, j, GET(Sh, c, i, j) + v);
-                SET(ST_next, c, i, j, PTvent);
+                SET(Sh, c, i, j, sh_local + v);
+                SET(ST, c, i, j, PTvent);
 
                 if(v != 0.0) {
                     atomicAdd(total_emitted_lava, v);
@@ -239,14 +245,11 @@ void mass_balance (
     size_t r,
     size_t c,
     double* Sh,
-    double* Sh_next,
     double* ST,
-    double* ST_next,
     double* Mf
 ) {
 
     const uint8_t inflows_indices[NUMBER_OF_OUTFLOWS] = { 3, 2, 1, 0, 6, 7, 4, 5 };
-
 
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -254,12 +257,34 @@ void mass_balance (
 
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
 
+
+        if(threadIdx.y == 0) {
+           halo_left[threadIdx.x] = GET(ST, c, i, j - 1); 
+        }
+
+        if(threadIdx.y == blockDim.y - 1) {
+           halo_right[threadIdx.x] = GET(ST, c, i, j + 1); 
+        }
+
+        if(threadIdx.x == 0) {
+           halo_top[threadIdx.y] = GET(ST, c, i - 1, j); 
+        }
+
+        if(threadIdx.x == blockDim.x - 1) {
+           halo_bottom[threadIdx.y] = GET(ST, c, i + 1, j); 
+        }
+
+        __syncthreads();
+
+
+        double t_initial = GET(ST, c, i, j);
+        double h_initial = GET(Sh, c, i, j);
+
+        __syncwarp();
+
         double inflow;
         double outflow;
         double t_neigh;
-
-        double h_initial = GET(Sh, c, i, j);
-        double t_initial = GET(ST, c, i, j);
 
         double h_next = h_initial;
         double t_next = h_initial * t_initial;
@@ -280,10 +305,12 @@ void mass_balance (
 
         if(h_next > 0.0) {
 
+            __syncthreads();
+
             t_next = DIV(t_next, h_next);
 
-            SET(ST_next, c, i, j, t_next);
-            SET(Sh_next, c, i, j, h_next);
+            SET(ST, c, i, j, t_next);
+            SET(Sh, c, i, j, h_next);
 
         }
 
@@ -307,8 +334,7 @@ void compute_new_temperature_and_solidification (
     double PTsol,
     double *Sz,
     double *Sz_next,
-    double *Sh, 
-    double *Sh_next, 
+    double *Sh,
     double *ST,
     double *ST_next,
     double *Mf,
@@ -328,6 +354,9 @@ void compute_new_temperature_and_solidification (
         double h = GET(Sh, c, i, j);
         double T = GET(ST, c, i, j);
 
+        __syncwarp();
+
+
         if(h > 0 && GET(Mb, c, i, j) == false) {
 
             aus = 1.0 + DIV((3 * pow(T, 3.0) * Pepsilon * Psigma * Pclock * Pcool), Prho * Pcv * h * Pac);
@@ -340,7 +369,7 @@ void compute_new_temperature_and_solidification (
             } else {
 
                 SET(Sz_next, c, i, j, z + h);
-                SET(Sh_next, c, i, j, 0.0);
+                SET(Sh, c, i, j, 0.0);
                 SET(ST_next, c, i, j, PTsol);
 
                 SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
@@ -564,13 +593,13 @@ int main(int argc, char** argv) {
             sciara->parameters->Pac,
             sciara->parameters->PTvent,
             sciara->substates->Sh,
-            sciara->substates->Sh_next,
+            sciara->substates->ST,
             sciara->substates->ST_next,
             total_emitted_lava
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
         memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+
 
 
         compute_outflows<<<grid, threads>>> (
@@ -590,14 +619,13 @@ int main(int argc, char** argv) {
         mass_balance<<<grid, threads>>> (
             M, N,
             sciara->substates->Sh,
-            sciara->substates->Sh_next,
             sciara->substates->ST,
             sciara->substates->ST_next,
             sciara->substates->Mf
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
         memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+
 
 
         compute_new_temperature_and_solidification<<<grid, threads>>> (
@@ -613,7 +641,6 @@ int main(int argc, char** argv) {
             sciara->substates->Sz,
             sciara->substates->Sz_next,
             sciara->substates->Sh,
-            sciara->substates->Sh_next,
             sciara->substates->ST,
             sciara->substates->ST_next,
             sciara->substates->Mf,
@@ -622,7 +649,6 @@ int main(int argc, char** argv) {
         );
 
         memcpy_gpu<<<grid, threads>>>(sciara->substates->Sz, sciara->substates->Sz_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
         memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
         cudaDeviceSynchronize();
