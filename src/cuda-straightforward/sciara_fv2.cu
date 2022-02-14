@@ -443,6 +443,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    if(THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2 > props.sharedMemPerBlock) {
+        std::cout << "Error: THREADS_PER_BLOCK^2 must be <= " << props.sharedMemPerBlock / (sizeof(double) * 2) << std::endl;
+        return 1;
+    }
+
     if(THREADS_PER_BLOCK * THREADS_PER_BLOCK % props.warpSize != 0) {
         std::cout << "Error: THREADS_PER_BLOCK must be divisible by " << props.warpSize << std::endl;
         return 1;

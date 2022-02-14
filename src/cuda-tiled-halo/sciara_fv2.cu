@@ -51,7 +51,6 @@ void emit_lava (
     double PTvent,
     double* Sh,
     double* ST,
-    double* ST_next,
     float* total_emitted_lava
 ) {
 
@@ -64,7 +63,7 @@ void emit_lava (
 
         double sh_local = GET(Sh, c, i, j);
 
-        __syncwarp();    
+        __syncthreads();    
 
 
         constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
@@ -77,7 +76,6 @@ void emit_lava (
 
                 SET(Sh, c, i, j, sh_local + v);
                 SET(ST, c, i, j, PTvent);
-                SET(ST_next, c, i, j, PTvent);
 
                 if(v != 0.0) {
                     atomicAdd(total_emitted_lava, v);
@@ -104,8 +102,16 @@ void compute_outflows(
     double _a,
     double _b,
     double _c,
-    double _d
+    double _d,
+    size_t TILE_STRIDE
 ) {
+
+    extern __shared__ double shared[];
+
+    double* sh_shared = &shared[0];
+    double* sz_shared = &shared[TILE_STRIDE * TILE_STRIDE];
+
+
 
     bool eliminated[MOORE_NEIGHBORS] = {};
     double z[MOORE_NEIGHBORS] = {};
@@ -129,28 +135,62 @@ void compute_outflows(
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
 
+
+    if(i < r && j < c) {
+
+        sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = GET(Sh, c, i, j);
+        sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = GET(Sz, c, i, j);
+
+    } else {
+
+        sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = 0.0;
+        sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = 0.0;
+
+    }
+
+    __syncthreads();
+
+
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
 
-        if(GET(Sh, c, i, j) <= 0)
+
+        if(sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] <= 0)
             return;
+
 
         T  = GET(ST, c, i, j);
         rr = pow(10, _a + _b * T);
         hc = pow(10, _c + _d * T);
 
+
         #pragma unroll
         for(size_t k = 0; k < MOORE_NEIGHBORS; k++) {
 
-            sz0   = GET(Sz, c, i, j);
-            sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
-            h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
+            if(threadIdx.x + Xi[k] >= blockDim.x || threadIdx.y + Xj[k] >= blockDim.y) {
+                
+                sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
+                h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
+
+            } else {
+
+                sz    = sz_shared[TILE_STRIDE * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                h[k]  = sh_shared[TILE_STRIDE * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+
+            }
+
+            sz0   = sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x];
             w[k]  = Pc;
             Pr[k] = rr;
 
+
             if(k < VON_NEUMANN_NEIGHBORS) {
+
                 z[k] = sz;
+            
             } else {
+            
                 z[k] = sz0 - DIV((sz0 - sz), sqrt(2.0));
+            
             }
 
         }
@@ -248,9 +288,13 @@ void mass_balance (
     size_t c,
     double* Sh,
     double* ST,
-    double* ST_next,
-    double* Mf
+    double* ST_halo,
+    double* Mf,
+    size_t TILE_STRIDE
 ) {
+
+    extern __shared__ double st_shared[];
+
 
     const uint8_t inflows_indices[NUMBER_OF_OUTFLOWS] = { 3, 2, 1, 0, 6, 7, 4, 5 };
 
@@ -263,7 +307,10 @@ void mass_balance (
         double t_initial = GET(ST, c, i, j);
         double h_initial = GET(Sh, c, i, j);
 
-        __syncwarp();
+        st_shared[TILE_STRIDE * threadIdx.y + threadIdx.x] = t_initial;
+
+        __syncthreads();
+
 
         double inflow;
         double outflow;
@@ -276,7 +323,16 @@ void mass_balance (
         #pragma unroll
         for(size_t n = 1; n < MOORE_NEIGHBORS; n++) {
 
-            t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+            if(threadIdx.x + Xi[n] >= blockDim.x || threadIdx.y + Xj[n] >= blockDim.y) {
+
+                t_neigh = GET(ST_halo, c, i + Xi[n], j + Xj[n]);
+
+            } else {
+
+                t_neigh = st_shared[TILE_STRIDE * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+
+            }
+
 
             inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
             outflow = BUF_GET(Mf, r, c, n - 1, i, j);
@@ -288,11 +344,9 @@ void mass_balance (
 
         if(h_next > 0.0) {
 
-            __syncthreads();
-
             t_next = DIV(t_next, h_next);
 
-            SET(ST_next, c, i, j, t_next);
+            SET(ST, c, i, j, t_next);
             SET(Sh, c, i, j, h_next);
 
         }
@@ -318,7 +372,6 @@ void compute_new_temperature_and_solidification (
     double *Sz,
     double *Sh,
     double *ST,
-    double *ST_next,
     double *Mf,
     double *Mhs,
     bool   *Mb
@@ -336,7 +389,7 @@ void compute_new_temperature_and_solidification (
         double h = GET(Sh, c, i, j);
         double T = GET(ST, c, i, j);
 
-        __syncwarp();
+        __syncthreads();
 
 
         if(h > 0 && GET(Mb, c, i, j) == false) {
@@ -347,15 +400,12 @@ void compute_new_temperature_and_solidification (
             if(nT > PTsol) {
 
                 SET(ST, c, i, j, nT);
-                SET(ST_next, c, i, j, nT);
             
             } else {
 
                 SET(Sz, c, i, j, z + h);
                 SET(Sh, c, i, j, 0.0);
-
                 SET(ST, c, i, j, PTsol);
-                SET(ST_next, c, i, j, PTsol);
 
                 SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
 
@@ -388,15 +438,20 @@ void reduce_add(size_t r, size_t c, double* buffer, float* acc) {
 }
 
 
+
 __global__
-void memcpy_gpu(double *dst, double *src, int r, int c) {
+void prepare_halo(double *dst, double *src, int r, int c) {
 
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (i < r && j < c) {
 
-        dst[i * c + j] = src[i * c + j];
+        if(threadIdx.x == 0 || threadIdx.x == blockDim.x - 1 || threadIdx.y == 0 || threadIdx.y == blockDim.y - 1) {
+
+            dst[i * c + j] = src[i * c + j];
+
+        }
 
     }
 
@@ -440,6 +495,8 @@ int main(int argc, char** argv) {
     float THICKNESS = atof(argv[6]);
 
     
+
+
     
     cudaDeviceProp props;
     if(cudaGetDeviceProperties(&props, 0) != cudaSuccess) {
@@ -454,6 +511,11 @@ int main(int argc, char** argv) {
 
     if(THREADS_PER_BLOCK * THREADS_PER_BLOCK > props.maxThreadsPerBlock) {
         std::cout << "Error: THREADS_PER_BLOCK must be <= " << props.maxThreadsPerBlock << std::endl;
+        return 1;
+    }
+
+    if(THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2 > props.sharedMemPerBlock) {
+        std::cout << "Error: THREADS_PER_BLOCK^2 must be <= " << props.sharedMemPerBlock / (sizeof(double) * 2) << std::endl;
         return 1;
     }
 
@@ -477,13 +539,25 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-
 #if defined(DEBUG)
-    fprintf(stdout, "Device '%s' props:\n", props.name);
-    fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
-    fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
-    fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
-    fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
+
+    int count;
+    if(cudaGetDeviceCount(&count) != cudaSuccess) {
+        std::cout << "Error: cudaGetDeviceCount" << std::endl;
+        return 1;
+    }
+
+    for(size_t i = 0; i < count; i++) {
+        cudaGetDeviceProperties(&props, i);
+        fprintf(stdout, "Device '%s' (%d) props:\n", props.name, props.multiGpuBoardGroupID);
+        fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
+        fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
+        fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
+        fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
+    }
+
+    cudaGetDeviceProperties(&props, 0);
+
 #endif
 
 
@@ -566,6 +640,16 @@ int main(int argc, char** argv) {
     float total_current_lava = -1.0f;
 
 
+
+
+    double* ST_halo;
+    if(cudaMallocManaged(&ST_halo, sizeof(double) * M * N) != cudaSuccess) {
+        std::cout << "Error: cudaMalloc 'ST_halo'" << std::endl;
+        return 1;
+    }
+
+
+
     util::Timer cl_timer;
 
     while((total_current_lava == -1.0f || total_current_lava > THICKNESS) || (sciara->simulation->elapsed_time <= sciara->simulation->effusion_duration)) {
@@ -583,12 +667,11 @@ int main(int argc, char** argv) {
             sciara->parameters->PTvent,
             sciara->substates->Sh,
             sciara->substates->ST,
-            sciara->substates->ST_next,
             d_total_emitted_lava
         );
 
 
-        compute_outflows<<<grid, threads>>> (
+        compute_outflows<<<grid, threads, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
             M, N,
             sciara->substates->Sz,
             sciara->substates->Sh,
@@ -598,19 +681,21 @@ int main(int argc, char** argv) {
             sciara->parameters->a,
             sciara->parameters->b,
             sciara->parameters->c,
-            sciara->parameters->d
+            sciara->parameters->d,
+            THREADS_PER_BLOCK
         );
 
 
-        mass_balance<<<grid, threads>>> (
+        prepare_halo<<<grid, threads>>> (ST_halo, sciara->substates->ST, M, N);
+
+        mass_balance<<<grid, threads, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
             M, N,
             sciara->substates->Sh,
             sciara->substates->ST,
-            sciara->substates->ST_next,
-            sciara->substates->Mf
+            ST_halo,
+            sciara->substates->Mf,
+            THREADS_PER_BLOCK
         );
-
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
 
 
@@ -627,7 +712,6 @@ int main(int argc, char** argv) {
             sciara->substates->Sz,
             sciara->substates->Sh,
             sciara->substates->ST,
-            sciara->substates->ST_next,
             sciara->substates->Mf,
             sciara->substates->Mhs,
             sciara->substates->Mb
