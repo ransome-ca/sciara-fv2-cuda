@@ -12,7 +12,18 @@ fd = [x.split() for x in fd]
 fd = [[float(y) for y in x] for x in fd]
 fd = np.array(fd)
 
+if sys.argv[1] == 'data/2006/output_2006_000000016000_Temperature.stt':
 
-plt.imshow(fd, cmap='hot', interpolation='nearest')
+    unique, counts = np.unique(fd, return_counts=True)
+
+    print("Unique values count in Temperature:")
+    for i in range(len(unique)):
+        print(f'Value {unique[i]} has count {counts[i]}')
+    
+    plt.imshow(fd, cmap='autumn_r', interpolation='nearest')
+
+else:
+    plt.imshow(fd, cmap='hot', interpolation='nearest')
+
 plt.colorbar()
 plt.show()
