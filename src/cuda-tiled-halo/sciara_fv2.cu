@@ -14,6 +14,9 @@
 
 
 
+#define VENTS_COUNT             2
+
+
 #define GET(M, c, i, j)         ((M)[(c) * (i) + (j)])
 #define SET(M, c, i, j, val)    ((M)[(c) * (i) + (j)] = (val))
 
@@ -36,7 +39,7 @@
 
 __constant__ int Xi[MOORE_NEIGHBORS];
 __constant__ int Xj[MOORE_NEIGHBORS];
-__constant__ TVent vents[2];
+__constant__ TVent vents[VENTS_COUNT];
 
 
 
@@ -54,40 +57,29 @@ void emit_lava (
     float* total_emitted_lava
 ) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
 
 
-    if(i < r && j < c) {
+    const size_t k = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if(k < vents_size) {
 
-        double sh_local = GET(Sh, c, i, j);
+        const size_t i = vents[k].y();
+        const size_t j = vents[k].x();
 
-        __syncthreads();    
+        double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
 
+        SET(Sh, c, i, j, GET(Sh, c, i, j) + v);
+        SET(ST, c, i, j, PTvent);
 
-        constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
-
-        for(size_t k = 0; k < vents_size; k++) {
-
-            if(vents[k].y() == i && vents[k].x() == j) {
-
-                double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
-
-                SET(Sh, c, i, j, sh_local + v);
-                SET(ST, c, i, j, PTvent);
-
-                if(v != 0.0) {
-                    atomicAdd(total_emitted_lava, v);
-                }
-
-            }
-
+        if(v != 0.0) {
+            atomicAdd(total_emitted_lava, v);
         }
 
     }
 
 }
+
 
 
 __global__
@@ -103,13 +95,13 @@ void compute_outflows(
     double _b,
     double _c,
     double _d,
-    size_t TILE_STRIDE
+    size_t TILE_PITCH
 ) {
 
     extern __shared__ double shared[];
 
     double* sh_shared = &shared[0];
-    double* sz_shared = &shared[TILE_STRIDE * TILE_STRIDE];
+    double* sz_shared = &shared[TILE_PITCH * TILE_PITCH];
 
 
 
@@ -118,8 +110,6 @@ void compute_outflows(
     double h[MOORE_NEIGHBORS] = {};
     double H[MOORE_NEIGHBORS] = {};
     double theta[MOORE_NEIGHBORS] = {};
-    double w[MOORE_NEIGHBORS] = {};
-    double Pr[MOORE_NEIGHBORS] = {};
     
     double sz0;
     double sz;
@@ -138,13 +128,13 @@ void compute_outflows(
 
     if(i < r && j < c) {
 
-        sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = GET(Sh, c, i, j);
-        sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = GET(Sz, c, i, j);
+        sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = GET(Sh, c, i, j);
+        sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = GET(Sz, c, i, j);
 
     } else {
 
-        sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = 0.0;
-        sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] = 0.0;
+        sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = 0.0;
+        sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = 0.0;
 
     }
 
@@ -154,7 +144,7 @@ void compute_outflows(
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
 
 
-        if(sh_shared[threadIdx.y * TILE_STRIDE + threadIdx.x] <= 0)
+        if(sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] <= 0)
             return;
 
 
@@ -173,14 +163,12 @@ void compute_outflows(
 
             } else {
 
-                sz    = sz_shared[TILE_STRIDE * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
-                h[k]  = sh_shared[TILE_STRIDE * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                sz    = sz_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                h[k]  = sh_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
 
             }
 
-            sz0   = sz_shared[threadIdx.y * TILE_STRIDE + threadIdx.x];
-            w[k]  = Pc;
-            Pr[k] = rr;
+            sz0   = sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x];
 
 
             if(k < VON_NEUMANN_NEIGHBORS) {
@@ -207,7 +195,7 @@ void compute_outflows(
             if(z[0] + h[0] > z[k] + h[k]) {
 
                 H[k]          = z[k] + h[k];
-                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), w[k]));
+                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), Pc));
                 eliminated[k] = false; 
             
             } else {
@@ -266,7 +254,7 @@ void compute_outflows(
 
             if(!eliminated[k] && h[0] > hc * cos(theta[k])) {
 
-                BUF_SET(Mf, r, c, k - 1, i, j, Pr[k] * (avg - H[k]));
+                BUF_SET(Mf, r, c, k - 1, i, j, rr * (avg - H[k]));
 
             } else {
 
@@ -290,7 +278,7 @@ void mass_balance (
     double* ST,
     double* ST_halo,
     double* Mf,
-    size_t TILE_STRIDE
+    size_t TILE_PITCH
 ) {
 
     extern __shared__ double st_shared[];
@@ -307,7 +295,7 @@ void mass_balance (
         double t_initial = GET(ST, c, i, j);
         double h_initial = GET(Sh, c, i, j);
 
-        st_shared[TILE_STRIDE * threadIdx.y + threadIdx.x] = t_initial;
+        st_shared[TILE_PITCH * threadIdx.y + threadIdx.x] = t_initial;
 
         __syncthreads();
 
@@ -329,7 +317,7 @@ void mass_balance (
 
             } else {
 
-                t_neigh = st_shared[TILE_STRIDE * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+                t_neigh = st_shared[TILE_PITCH * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
 
             }
 
@@ -377,19 +365,18 @@ void compute_new_temperature_and_solidification (
     bool   *Mb
 ) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    const size_t GRID_STRIDE_ROW = gridDim.x * blockDim.x;
+    const size_t GRID_STRIDE_COL = gridDim.y * blockDim.y;
 
-    if(i < r && j < c) {
+
+    for(size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < r; i += GRID_STRIDE_ROW) {
+        for(size_t j = blockIdx.y * blockDim.y + threadIdx.y; j < c; j += GRID_STRIDE_COL) {
 
         double nT;
         double aus;
 
-        double z = GET(Sz, c, i, j);
         double h = GET(Sh, c, i, j);
         double T = GET(ST, c, i, j);
-
-        __syncthreads();
 
 
         if(h > 0 && GET(Mb, c, i, j) == false) {
@@ -403,7 +390,7 @@ void compute_new_temperature_and_solidification (
             
             } else {
 
-                SET(Sz, c, i, j, z + h);
+                SET(Sz, c, i, j, GET(Sz, c, i, j) + h);
                 SET(Sh, c, i, j, 0.0);
                 SET(ST, c, i, j, PTsol);
 
@@ -413,6 +400,7 @@ void compute_new_temperature_and_solidification (
 
         }
         
+    }
     }
 
 }
@@ -425,15 +413,16 @@ void reduce_add(size_t r, size_t c, double* buffer, float* acc) {
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if(i < r && j < c) {
+    if (i < r && j < c) {
 
         double v = buffer[i * c + j];
 
         if(v != 0.0) {
             atomicAdd(acc, v);
         }
-
+            
     }
+
 
 }
 
@@ -574,14 +563,29 @@ int main(int argc, char** argv) {
     size_t M = sciara->domain->rows;
     size_t N = sciara->domain->cols;
 
-    dim3 threads (
+
+
+    dim3 threads_1d (
+        THREADS_PER_BLOCK
+    );
+
+    dim3 threads_2d (
         THREADS_PER_BLOCK,
         THREADS_PER_BLOCK
     );
 
-    dim3 grid {
+    dim3 wgrid {
         max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK)),
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK))
+    };
+    
+    dim3 wgrid_stride_2 {
+        max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK / 2)),
+        max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK / 2))
+    };
+
+    dim3 vgrid {
+        max(1U, (unsigned int) ceil(double(sizeof(vents) / sizeof(vents[0])) / THREADS_PER_BLOCK)),
     };
 
 
@@ -589,15 +593,14 @@ int main(int argc, char** argv) {
     simulationInitialize(sciara);
 
 
-    assert(sciara->simulation->vent.size() == 2);
+    TVent h_vent[sciara->simulation->vent.size()];
 
-
-    TVent h_vent[2];
-
-    for(size_t i = 0; i < 2; i++) {
+    for(size_t i = 0; i < sciara->simulation->vent.size(); i++) {
         memcpy(&h_vent[i], &sciara->simulation->vent[i], sizeof(TVent));
     }
 
+
+    assert(sciara->simulation->vent.size() == VENTS_COUNT);
 
     if(cudaMemcpyToSymbol(vents, h_vent, sizeof(TVent) * sciara->simulation->vent.size()) != cudaSuccess) {
         std::cout << "Error: cudaMemcpyToSymbol 'h_vent'" << std::endl;
@@ -658,7 +661,7 @@ int main(int argc, char** argv) {
         sciara->simulation->step++;
 
 
-        emit_lava<<<grid, threads>>> (
+        emit_lava<<<vgrid, threads_1d>>> (
             M, N,
             sciara->simulation->elapsed_time,
             sciara->parameters->Pclock,
@@ -671,7 +674,7 @@ int main(int argc, char** argv) {
         );
 
 
-        compute_outflows<<<grid, threads, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
+        compute_outflows<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
             M, N,
             sciara->substates->Sz,
             sciara->substates->Sh,
@@ -686,9 +689,9 @@ int main(int argc, char** argv) {
         );
 
 
-        prepare_halo<<<grid, threads>>> (ST_halo, sciara->substates->ST, M, N);
+        prepare_halo<<<wgrid, threads_2d>>> (ST_halo, sciara->substates->ST, M, N);
 
-        mass_balance<<<grid, threads, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
+        mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
             M, N,
             sciara->substates->Sh,
             sciara->substates->ST,
@@ -699,7 +702,7 @@ int main(int argc, char** argv) {
 
 
 
-        compute_new_temperature_and_solidification<<<grid, threads>>> (
+        compute_new_temperature_and_solidification<<<wgrid_stride_2, threads_2d>>> (
             M, N,
             sciara->parameters->Pepsilon,
             sciara->parameters->Psigma,
@@ -722,7 +725,7 @@ int main(int argc, char** argv) {
 
             cudaMemset(d_total_current_lava, 0, sizeof(float));
 
-            reduce_add<<<grid, threads>>>(
+            reduce_add<<<wgrid, threads_2d>>>(
                 M, N,
                 sciara->substates->Sh,
                 d_total_current_lava

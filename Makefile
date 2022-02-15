@@ -15,35 +15,43 @@ CXX					:= g++
 NVCC				:= nvcc
 
 
-STSRCS					:= $(shell find src/standard -name '*.cpp')
-STHDRS					:= $(shell find src/standard -name '*.h')
-CUSRCS					:= $(shell find src/cuda -name '*.cu')
-CUHDRS					:= $(shell find src/cuda -name '*.h')
-CUSRCS_STRAIGHTFORWARD	:= $(shell find src/cuda-straightforward -name '*.cu')
-CUHDRS_STRAIGHTFORWARD	:= $(shell find src/cuda-straightforward -name '*.h')
-CUSRCS_TILED_HALO		:= $(shell find src/cuda-tiled-halo -name '*.cu')
-CUHDRS_TILED_HALO		:= $(shell find src/cuda-tiled-halo -name '*.h')
-CUSRCS_TILED_NO_HALO	:= $(shell find src/cuda-tiled-no-halo -name '*.cu')
-CUHDRS_TILED_NO_HALO	:= $(shell find src/cuda-tiled-no-halo -name '*.h')
+EXTRA_CUFLAGS       ?=
+EXTRA_CXXFLAGS      ?=
 
-SERIAL					:= sciara-fv2-serial
-PARALLEL				:= sciara-fv2-parallel
-CUDA_STRAIGHTFORWARD	:= sciara-fv2-cuda-straightforward
-CUDA_TILED_HALO			:= sciara-fv2-cuda-tiled-halo
-CUDA_TILED_NO_HALO		:= sciara-fv2-cuda-tiled-no-halo
+
+STSRCS						:= $(shell find src/standard -name '*.cpp')
+STHDRS						:= $(shell find src/standard -name '*.h')
+CUSRCS						:= $(shell find src/cuda -name '*.cu')
+CUHDRS						:= $(shell find src/cuda -name '*.h')
+CUSRCS_STRAIGHTFORWARD		:= $(shell find src/cuda-straightforward -name '*.cu')
+CUHDRS_STRAIGHTFORWARD		:= $(shell find src/cuda-straightforward -name '*.h')
+CUSRCS_TILED_HALO			:= $(shell find src/cuda-tiled-halo -name '*.cu')
+CUHDRS_TILED_HALO			:= $(shell find src/cuda-tiled-halo -name '*.h')
+CUSRCS_TILED_HALO_MULTI_GPU	:= $(shell find src/cuda-tiled-halo-multi-gpu -name '*.cu')
+CUHDRS_TILED_HALO_MULTI_GPU	:= $(shell find src/cuda-tiled-halo-multi-gpu -name '*.h')
+CUSRCS_TILED_NO_HALO		:= $(shell find src/cuda-tiled-no-halo -name '*.cu')
+CUHDRS_TILED_NO_HALO		:= $(shell find src/cuda-tiled-no-halo -name '*.h')
+
+SERIAL						:= sciara-fv2-serial
+PARALLEL					:= sciara-fv2-parallel
+CUDA_STRAIGHTFORWARD		:= sciara-fv2-cuda-straightforward
+CUDA_TILED_HALO				:= sciara-fv2-cuda-tiled-halo
+CUDA_TILED_HALO_MULTI_GPU	:= sciara-fv2-cuda-tiled-halo-multi-gpu
+CUDA_TILED_NO_HALO			:= sciara-fv2-cuda-tiled-no-halo
 
 
 DEFINES		:=
 CXXFLAGS	:=-O3 $(addprefix -D,$(DEFINES))
-CUFLAGS		:=-O3 -I src/cuda -gencode=arch=compute_52,code="compute_52" -fmad=false $(addprefix -D,$(DEFINES))
+CUFLAGS		:=-O3 -I src/cuda -gencode=arch=compute_52,code="compute_52" -fmad=false $(addprefix -D,$(DEFINES)) $(EXTRA_CUFLAGS)
 
 
-all: $(SERIAL) $(PARALLEL) $(CUDA)
+all: $(SERIAL) $(PARALLEL) $(CUDA_STRAIGHTFORWARD) $(CUDA_TILED_HALO) $(CUDA_TILED_HALO_MULTI_GPU) $(CUDA_TILED_NO_HALO)
 
 serial: $(SERIAL)
 parallel: $(PARALLEL)
 cuda-straightforward: $(CUDA_STRAIGHTFORWARD)
 cuda-tiled-halo: $(CUDA_TILED_HALO)
+cuda-tiled-halo-multi-gpu: $(CUDA_TILED_HALO_MULTI_GPU)
 cuda-tiled-no-halo: $(CUDA_TILED_NO_HALO)
 
 
@@ -58,6 +66,9 @@ $(CUDA_STRAIGHTFORWARD): $(CUSRCS) $(CUHDRS) $(CUSRCS_STRAIGHTFORWARD) $(CUHDRS_
 
 $(CUDA_TILED_HALO): $(CUSRCS) $(CUHDRS) $(CUSRCS_TILED_HALO) $(CUHDRS_TILED_HALO)
 	$(NVCC) $(CUFLAGS) $(CUSRCS) $(CUSRCS_TILED_HALO) -o $@ $(LIBS)
+
+$(CUDA_TILED_HALO_MULTI_GPU): $(CUSRCS) $(CUHDRS) $(CUSRCS_TILED_HALO_MULTI_GPU) $(CUHDRS_TILED_HALO_MULTI_GPU)
+	$(NVCC) $(CUFLAGS) -Xcompiler -fopenmp $(CUSRCS) $(CUSRCS_TILED_HALO_MULTI_GPU) -o $@ $(LIBS) --default-stream per-thread
 
 $(CUDA_TILED_NO_HALO): $(CUSRCS) $(CUHDRS) $(CUSRCS_TILED_NO_HALO) $(CUHDRS_TILED_NO_HALO)
 	$(NVCC) $(CUFLAGS) $(CUSRCS) $(CUSRCS_TILED_NO_HALO) -o $@ $(LIBS)
@@ -75,6 +86,9 @@ run-cuda-straightforward: $(CUDA_STRAIGHTFORWARD)
 run-cuda-tiled-halo: $(CUDA_TILED_HALO)
 	$(PROF) ./$(CUDA_TILED_HALO) $(THREADS) $(INPUT_CONFIG) $(OUTPUT_CONFIG) $(STEPS) $(REDUCE_INTERVL) $(THICKNESS_THRESHOLD) && md5sum $(OUTPUT) && echo "704a4a65d1890589e952b155d53b110d"
 
+run-cuda-tiled-halo-multi-gpu: $(CUDA_TILED_HALO_MULTI_GPU)
+	$(PROF) ./$(CUDA_TILED_HALO_MULTI_GPU) $(THREADS) $(INPUT_CONFIG) $(OUTPUT_CONFIG) $(STEPS) $(REDUCE_INTERVL) $(THICKNESS_THRESHOLD) && md5sum $(OUTPUT) && echo "704a4a65d1890589e952b155d53b110d"
+
 run-cuda-tiled-no-halo: $(CUDA_TILED_NO_HALO)
 	$(PROF) ./$(CUDA_TILED_NO_HALO) $(THREADS) $(INPUT_CONFIG) $(OUTPUT_CONFIG) $(STEPS) $(REDUCE_INTERVL) $(THICKNESS_THRESHOLD) && md5sum $(OUTPUT) && echo "704a4a65d1890589e952b155d53b110d"
 
@@ -83,8 +97,11 @@ run-cuda-tiled-no-halo: $(CUDA_TILED_NO_HALO)
 debug-cuda-straightforward: $(CUDA_STRAIGHTFORWARD)
 	cuda-gdb ./$(CUDA_STRAIGHTFORWARD)
 
-debug-cuda-tiled: $(CUDA_TILED_HALO)
+debug-cuda-tiled-halo: $(CUDA_TILED_HALO)
 	cuda-gdb ./$(CUDA_TILED_HALO)
 
+debug-cuda-tiled-halo-multi-gpu: $(CUDA_TILED_HALO_MULTI_GPU)
+	cuda-gdb ./$(CUDA_TILED_HALO_MULTI_GPU)
+
 clean:
-	$(RM) $(SERIAL) $(PARALLEL) $(CUDA_STRAIGHTFORWARD) $(CUDA_TILED_HALO) $(CUDA_TILED_NO_HALO) $(OUTPUT_CONFIG)*
+	$(RM) $(SERIAL) $(PARALLEL) $(CUDA_STRAIGHTFORWARD) $(CUDA_TILED_HALO) $(CUDA_TILED_HALO_MULTI_GPU) $(CUDA_TILED_NO_HALO) $(OUTPUT_CONFIG)*

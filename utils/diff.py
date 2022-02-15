@@ -27,4 +27,4 @@ indices = np.where(diff != 0)
 print(f'Difference between {sys.argv[1]} and {sys.argv[2]}:')
 
 for i in range(len(indices[0])):
-    print(f'{indices[0][i]}, {indices[1][i]}: {diff[indices[0][i]][indices[1][i]]}')
+    print(f'{indices[0][i]}, {indices[1][i]}: {'cuda' if diff[indices[0][i]][indices[1][i]] else 'serial'}')
