@@ -408,21 +408,54 @@ void compute_new_temperature_and_solidification (
 
 
 __global__
-void reduce_add(size_t r, size_t c, double* buffer, float* acc) {
+void reduce_add(size_t size, double* buffer, float* acc) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    extern __shared__ double shared[];
 
-    if (i < r && j < c) {
 
-        double v = buffer[i * c + j];
+    shared[threadIdx.x] = 0.0;
 
-        if(v != 0.0) {
-            atomicAdd(acc, v);
-        }
-            
+    for(size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += gridDim.x * blockDim.x) {
+
+        shared[threadIdx.x] += buffer[i];
+
     }
 
+    __syncthreads();
+
+
+    const size_t blocksize = blockDim.x * blockDim.y;
+
+    if(blocksize >= 512 && threadIdx.x < 256) {
+        shared[threadIdx.x] += shared[threadIdx.x + 256];
+        __syncthreads();
+    }
+
+    if(blocksize >= 256 && threadIdx.x < 128) {
+        shared[threadIdx.x] += shared[threadIdx.x + 128];
+        __syncthreads();
+    }
+
+    if(blocksize >= 128 && threadIdx.x < 64) {
+        shared[threadIdx.x] += shared[threadIdx.x + 64];
+        __syncthreads();
+    }
+
+
+    double v = shared[threadIdx.x];
+
+    if(threadIdx.x < 32) {
+        v += __shfl_down_sync(0xFFFFFFFF, v, 32);
+        v += __shfl_down_sync(0xFFFFFFFF, v, 16);
+        v += __shfl_down_sync(0xFFFFFFFF, v,  8);
+        v += __shfl_down_sync(0xFFFFFFFF, v,  4); 
+        v += __shfl_down_sync(0xFFFFFFFF, v,  2); 
+        v += __shfl_down_sync(0xFFFFFFFF, v,  1); 
+    }
+
+    if(threadIdx.x == 0 && v != 0.0) {
+        atomicAdd(acc, v);
+    }
 
 }
 
@@ -476,12 +509,12 @@ int main(int argc, char** argv) {
     }
 
 
-    size_t THREADS_PER_BLOCK = atol(argv[1]);
-    const char* INPUT_CFG = argv[2];
-    const char* OUTPUT_PATH = argv[3];
-    size_t STEPS = atol(argv[4]);
-    size_t REDUCE = atol(argv[5]);
-    float THICKNESS = atof(argv[6]);
+    size_t THREADS_PER_BLOCK    = atol(argv[1]);
+    const char* INPUT_CFG       = argv[2];
+    const char* OUTPUT_PATH     = argv[3];
+    size_t STEPS                = atol(argv[4]);
+    size_t REDUCE               = atol(argv[5]);
+    float THICKNESS             = atof(argv[6]);
 
     
 
@@ -566,7 +599,7 @@ int main(int argc, char** argv) {
 
 
     dim3 threads_1d (
-        THREADS_PER_BLOCK
+        THREADS_PER_BLOCK * THREADS_PER_BLOCK
     );
 
     dim3 threads_2d (
@@ -582,6 +615,10 @@ int main(int argc, char** argv) {
     dim3 wgrid_stride_2 {
         max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK / 2)),
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK / 2))
+    };
+
+    dim3 rgrid {
+        max(1U, (unsigned int) ceil(double(M * N) / THREADS_PER_BLOCK / 8))
     };
 
     dim3 vgrid {
@@ -725,8 +762,8 @@ int main(int argc, char** argv) {
 
             cudaMemset(d_total_current_lava, 0, sizeof(float));
 
-            reduce_add<<<wgrid, threads_2d>>>(
-                M, N,
+            reduce_add<<<rgrid, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
+                M * N,
                 sciara->substates->Sh,
                 d_total_current_lava
             );
