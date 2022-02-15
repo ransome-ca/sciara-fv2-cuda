@@ -14,6 +14,9 @@
 
 
 
+#define VENTS_COUNT             2
+
+
 #define GET(M, c, i, j)         ((M)[(c) * (i) + (j)])
 #define SET(M, c, i, j, val)    ((M)[(c) * (i) + (j)] = (val))
 
@@ -36,7 +39,7 @@
 
 __constant__ int Xi[MOORE_NEIGHBORS];
 __constant__ int Xj[MOORE_NEIGHBORS];
-__constant__ TVent vents[2];
+__constant__ TVent vents[VENTS_COUNT];
 
 
 
@@ -55,28 +58,23 @@ void emit_lava (
     float* total_emitted_lava
 ) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
 
-    if(i < r && j < c) {
 
-        constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
+    const size_t k = blockIdx.x * blockDim.x + threadIdx.x;
 
-        for(size_t k = 0; k < vents_size; k++) {
+    if(k < vents_size) {
 
-            if(vents[k].y() == i && vents[k].x() == j) {
+        const size_t i = vents[k].y();
+        const size_t j = vents[k].x();
 
-                double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
+        double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
 
-                SET(Sh_next, c, i, j, GET(Sh, c, i, j) + v);
-                SET(ST_next, c, i, j, PTvent);
+        SET(Sh_next, c, i, j, GET(Sh, c, i, j) + v);
+        SET(ST_next, c, i, j, PTvent);
 
-                if(v != 0.0) {
-                    atomicAdd(total_emitted_lava, v);
-                }
-
-            }
-
+        if(v != 0.0) {
+            atomicAdd(total_emitted_lava, v);
         }
 
     }
@@ -104,8 +102,6 @@ void compute_outflows(
     double h[MOORE_NEIGHBORS] = {};
     double H[MOORE_NEIGHBORS] = {};
     double theta[MOORE_NEIGHBORS] = {};
-    double w[MOORE_NEIGHBORS] = {};
-    double Pr[MOORE_NEIGHBORS] = {};
     
     double sz0;
     double sz;
@@ -136,8 +132,7 @@ void compute_outflows(
             sz0   = GET(Sz, c, i, j);
             sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
             h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
-            w[k]  = Pc;
-            Pr[k] = rr;
+
 
             if(k < VON_NEUMANN_NEIGHBORS) {
                 z[k] = sz;
@@ -159,7 +154,7 @@ void compute_outflows(
             if(z[0] + h[0] > z[k] + h[k]) {
 
                 H[k]          = z[k] + h[k];
-                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), w[k]));
+                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), Pc));
                 eliminated[k] = false; 
             
             } else {
@@ -218,7 +213,7 @@ void compute_outflows(
 
             if(!eliminated[k] && h[0] > hc * cos(theta[k])) {
 
-                BUF_SET(Mf, r, c, k - 1, i, j, Pr[k] * (avg - H[k]));
+                BUF_SET(Mf, r, c, k - 1, i, j, rr * (avg - H[k]));
 
             } else {
 
@@ -491,14 +486,23 @@ int main(int argc, char** argv) {
     size_t M = sciara->domain->rows;
     size_t N = sciara->domain->cols;
 
-    dim3 threads (
+
+    dim3 threads_1d (
+        THREADS_PER_BLOCK * THREADS_PER_BLOCK
+    );
+
+    dim3 threads_2d (
         THREADS_PER_BLOCK,
         THREADS_PER_BLOCK
     );
 
-    dim3 grid {
+    dim3 wgrid {
         max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK)),
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK))
+    };
+
+    dim3 vgrid {
+        max(1U, (unsigned int) ceil(double(sizeof(vents) / sizeof(vents[0])) / THREADS_PER_BLOCK)),
     };
 
 
@@ -506,15 +510,15 @@ int main(int argc, char** argv) {
     simulationInitialize(sciara);
 
 
-    assert(sciara->simulation->vent.size() == 2);
 
+    TVent h_vent[sciara->simulation->vent.size()];
 
-    TVent h_vent[2];
-
-    for(size_t i = 0; i < 2; i++) {
+    for(size_t i = 0; i < sciara->simulation->vent.size(); i++) {
         memcpy(&h_vent[i], &sciara->simulation->vent[i], sizeof(TVent));
     }
 
+
+    assert(sciara->simulation->vent.size() == VENTS_COUNT);
 
     if(cudaMemcpyToSymbol(vents, h_vent, sizeof(TVent) * sciara->simulation->vent.size()) != cudaSuccess) {
         std::cout << "Error: cudaMemcpyToSymbol 'h_vent'" << std::endl;
@@ -530,7 +534,6 @@ int main(int argc, char** argv) {
         std::cout << "Error: cudaMemcpyToSymbol 'Xj'" << std::endl;
         return 1;
     }
-
 
 
 
@@ -561,7 +564,7 @@ int main(int argc, char** argv) {
         sciara->simulation->step++;
 
 
-        emit_lava<<<grid, threads>>> (
+        emit_lava<<<vgrid, threads_1d>>> (
             M, N,
             sciara->simulation->elapsed_time,
             sciara->parameters->Pclock,
@@ -574,11 +577,11 @@ int main(int argc, char** argv) {
             total_emitted_lava
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
 
-        compute_outflows<<<grid, threads>>> (
+        compute_outflows<<<wgrid, threads_2d>>> (
             M, N,
             sciara->substates->Sz,
             sciara->substates->Sh,
@@ -592,7 +595,7 @@ int main(int argc, char** argv) {
         );
 
 
-        mass_balance<<<grid, threads>>> (
+        mass_balance<<<wgrid, threads_2d>>> (
             M, N,
             sciara->substates->Sh,
             sciara->substates->Sh_next,
@@ -601,11 +604,11 @@ int main(int argc, char** argv) {
             sciara->substates->Mf
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
 
-        compute_new_temperature_and_solidification<<<grid, threads>>> (
+        compute_new_temperature_and_solidification<<<wgrid, threads_2d>>> (
             M, N,
             sciara->parameters->Pepsilon,
             sciara->parameters->Psigma,
@@ -626,9 +629,9 @@ int main(int argc, char** argv) {
             sciara->substates->Mb
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sz, sciara->substates->Sz_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->Sz, sciara->substates->Sz_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->Sh, sciara->substates->Sh_next, M, N);
+        memcpy_gpu<<<wgrid, threads_2d>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
 
         cudaDeviceSynchronize();
 
@@ -637,7 +640,7 @@ int main(int argc, char** argv) {
 
             *total_current_lava = 0.0f;
 
-            reduce_add<<<grid, threads>>>(
+            reduce_add<<<wgrid, threads_2d>>>(
                 M, N,
                 sciara->substates->Sh,
                 total_current_lava
@@ -650,12 +653,11 @@ int main(int argc, char** argv) {
 
 #if defined(DEBUG)
         if(sciara->simulation->step % 100 == 0) {
-            fprintf(stderr, "\r[%08d]: %3d%% (%.2f s) [%f / %f]", 
+            fprintf(stderr, "\r[%08d]: %3d%% (%.2f s) [%f]", 
                 sciara->simulation->step,
                 (int)(double(sciara->simulation->step) / 16000.0 * 100.0),
                 cl_timer.getTimeMilliseconds() / 1000.0f,
-                *total_current_lava,
-                *total_emitted_lava);
+                *total_current_lava);
         }
 #endif
 

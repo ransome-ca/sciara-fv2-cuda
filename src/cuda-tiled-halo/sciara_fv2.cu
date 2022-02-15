@@ -617,7 +617,7 @@ int main(int argc, char** argv) {
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK / 2))
     };
 
-    dim3 rgrid {
+    dim3 rgrid_stide_8 {
         max(1U, (unsigned int) ceil(double(M * N) / THREADS_PER_BLOCK / 8))
     };
 
@@ -762,7 +762,7 @@ int main(int argc, char** argv) {
 
             cudaMemset(d_total_current_lava, 0, sizeof(float));
 
-            reduce_add<<<rgrid, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
+            reduce_add<<<rgrid_stide_8, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
                 M * N,
                 sciara->substates->Sh,
                 d_total_current_lava

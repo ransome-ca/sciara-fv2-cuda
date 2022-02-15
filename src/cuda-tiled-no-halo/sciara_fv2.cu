@@ -14,6 +14,9 @@
 
 
 
+#define VENTS_COUNT             2
+
+
 #define GET(M, c, i, j)         ((M)[(c) * (i) + (j)])
 #define SET(M, c, i, j, val)    ((M)[(c) * (i) + (j)] = (val))
 
@@ -36,7 +39,7 @@
 
 __constant__ int Xi[MOORE_NEIGHBORS];
 __constant__ int Xj[MOORE_NEIGHBORS];
-__constant__ TVent vents[2];
+__constant__ TVent vents[VENTS_COUNT];
 
 
 
@@ -51,45 +54,32 @@ void emit_lava (
     double PTvent,
     double* Sh,
     double* ST,
-    double* ST_next,
     float* total_emitted_lava
 ) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
 
 
-    if(i < r && j < c) {
+    const size_t k = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if(k < vents_size) {
 
-        double sh_local = GET(Sh, c, i, j);
+        const size_t i = vents[k].y();
+        const size_t j = vents[k].x();
 
-        __syncwarp();    
+        double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
 
+        SET(Sh, c, i, j, GET(Sh, c, i, j) + v);
+        SET(ST, c, i, j, PTvent);
 
-        constexpr const size_t vents_size = sizeof(vents) / sizeof(TVent);
-
-        for(size_t k = 0; k < vents_size; k++) {
-
-            if(vents[k].y() == i && vents[k].x() == j) {
-
-                double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
-
-                SET(Sh, c, i, j, sh_local + v);
-                SET(ST, c, i, j, PTvent);
-                SET(ST_next, c, i, j, PTvent);
-
-                if(v != 0.0) {
-                    atomicAdd(total_emitted_lava, v);
-                }
-
-            }
-
+        if(v != 0.0) {
+            atomicAdd(total_emitted_lava, v);
         }
 
     }
 
 }
+
 
 
 __global__
@@ -104,16 +94,22 @@ void compute_outflows(
     double _a,
     double _b,
     double _c,
-    double _d
+    double _d,
+    size_t TILE_PITCH
 ) {
+
+    extern __shared__ double shared[];
+
+    double* sh_shared = &shared[0];
+    double* sz_shared = &shared[TILE_PITCH * TILE_PITCH];
+
+
 
     bool eliminated[MOORE_NEIGHBORS] = {};
     double z[MOORE_NEIGHBORS] = {};
     double h[MOORE_NEIGHBORS] = {};
     double H[MOORE_NEIGHBORS] = {};
     double theta[MOORE_NEIGHBORS] = {};
-    double w[MOORE_NEIGHBORS] = {};
-    double Pr[MOORE_NEIGHBORS] = {};
     
     double sz0;
     double sz;
@@ -129,28 +125,60 @@ void compute_outflows(
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
 
+
+    if(i < r && j < c) {
+
+        sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = GET(Sh, c, i, j);
+        sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = GET(Sz, c, i, j);
+
+    } else {
+
+        sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = 0.0;
+        sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x] = 0.0;
+
+    }
+
+    __syncthreads();
+
+
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
 
-        if(GET(Sh, c, i, j) <= 0)
+
+        if(sh_shared[threadIdx.y * TILE_PITCH + threadIdx.x] <= 0)
             return;
+
 
         T  = GET(ST, c, i, j);
         rr = pow(10, _a + _b * T);
         hc = pow(10, _c + _d * T);
 
+
         #pragma unroll
         for(size_t k = 0; k < MOORE_NEIGHBORS; k++) {
 
-            sz0   = GET(Sz, c, i, j);
-            sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
-            h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
-            w[k]  = Pc;
-            Pr[k] = rr;
+            if(threadIdx.x + Xi[k] >= blockDim.x || threadIdx.y + Xj[k] >= blockDim.y) {
+                
+                sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
+                h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
+
+            } else {
+
+                sz    = sz_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                h[k]  = sh_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+
+            }
+
+            sz0   = sz_shared[threadIdx.y * TILE_PITCH + threadIdx.x];
+
 
             if(k < VON_NEUMANN_NEIGHBORS) {
+
                 z[k] = sz;
+            
             } else {
+            
                 z[k] = sz0 - DIV((sz0 - sz), sqrt(2.0));
+            
             }
 
         }
@@ -167,7 +195,7 @@ void compute_outflows(
             if(z[0] + h[0] > z[k] + h[k]) {
 
                 H[k]          = z[k] + h[k];
-                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), w[k]));
+                theta[k]      = atan(DIV(((z[0] + h[0]) - (z[k] + h[k])), Pc));
                 eliminated[k] = false; 
             
             } else {
@@ -226,7 +254,7 @@ void compute_outflows(
 
             if(!eliminated[k] && h[0] > hc * cos(theta[k])) {
 
-                BUF_SET(Mf, r, c, k - 1, i, j, Pr[k] * (avg - H[k]));
+                BUF_SET(Mf, r, c, k - 1, i, j, rr * (avg - H[k]));
 
             } else {
 
@@ -249,8 +277,12 @@ void mass_balance (
     double* Sh,
     double* ST,
     double* ST_next,
-    double* Mf
+    double* Mf,
+    size_t TILE_PITCH
 ) {
+
+    extern __shared__ double st_shared[];
+
 
     const uint8_t inflows_indices[NUMBER_OF_OUTFLOWS] = { 3, 2, 1, 0, 6, 7, 4, 5 };
 
@@ -263,7 +295,10 @@ void mass_balance (
         double t_initial = GET(ST, c, i, j);
         double h_initial = GET(Sh, c, i, j);
 
-        __syncwarp();
+        st_shared[TILE_PITCH * threadIdx.y + threadIdx.x] = t_initial;
+
+        __syncthreads();
+
 
         double inflow;
         double outflow;
@@ -276,7 +311,16 @@ void mass_balance (
         #pragma unroll
         for(size_t n = 1; n < MOORE_NEIGHBORS; n++) {
 
-            t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+            if(threadIdx.x + Xi[n] >= blockDim.x || threadIdx.y + Xj[n] >= blockDim.y) {
+
+                t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+
+            } else {
+
+                t_neigh = st_shared[TILE_PITCH * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+
+            }
+
 
             inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
             outflow = BUF_GET(Mf, r, c, n - 1, i, j);
@@ -287,8 +331,6 @@ void mass_balance (
         }
 
         if(h_next > 0.0) {
-
-            __syncthreads();
 
             t_next = DIV(t_next, h_next);
 
@@ -318,25 +360,23 @@ void compute_new_temperature_and_solidification (
     double *Sz,
     double *Sh,
     double *ST,
-    double *ST_next,
     double *Mf,
     double *Mhs,
     bool   *Mb
 ) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    const size_t GRID_STRIDE_ROW = gridDim.x * blockDim.x;
+    const size_t GRID_STRIDE_COL = gridDim.y * blockDim.y;
 
-    if(i < r && j < c) {
+
+    for(size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < r; i += GRID_STRIDE_ROW) {
+        for(size_t j = blockIdx.y * blockDim.y + threadIdx.y; j < c; j += GRID_STRIDE_COL) {
 
         double nT;
         double aus;
 
-        double z = GET(Sz, c, i, j);
         double h = GET(Sh, c, i, j);
         double T = GET(ST, c, i, j);
-
-        __syncwarp();
 
 
         if(h > 0 && GET(Mb, c, i, j) == false) {
@@ -347,15 +387,12 @@ void compute_new_temperature_and_solidification (
             if(nT > PTsol) {
 
                 SET(ST, c, i, j, nT);
-                SET(ST_next, c, i, j, nT);
             
             } else {
 
-                SET(Sz, c, i, j, z + h);
+                SET(Sz, c, i, j, GET(Sz, c, i, j) + h);
                 SET(Sh, c, i, j, 0.0);
-
                 SET(ST, c, i, j, PTsol);
-                SET(ST_next, c, i, j, PTsol);
 
                 SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
 
@@ -364,39 +401,74 @@ void compute_new_temperature_and_solidification (
         }
         
     }
-
-}
-
-
-
-__global__
-void reduce_add(size_t r, size_t c, double* buffer, float* acc) {
-
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if(i < r && j < c) {
-
-        double v = buffer[i * c + j];
-
-        if(v != 0.0) {
-            atomicAdd(acc, v);
-        }
-
     }
 
 }
 
 
+
 __global__
-void memcpy_gpu(double *dst, double *src, int r, int c) {
+void reduce_add(size_t size, double* buffer, float* acc) {
 
-    const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+    extern __shared__ double shared[];
 
-    if (i < r && j < c) {
 
-        dst[i * c + j] = src[i * c + j];
+    shared[threadIdx.x] = 0.0;
+
+    for(size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += gridDim.x * blockDim.x) {
+
+        shared[threadIdx.x] += buffer[i];
+
+    }
+
+    __syncthreads();
+
+
+    const size_t blocksize = blockDim.x * blockDim.y;
+
+    if(blocksize >= 512 && threadIdx.x < 256) {
+        shared[threadIdx.x] += shared[threadIdx.x + 256];
+        __syncthreads();
+    }
+
+    if(blocksize >= 256 && threadIdx.x < 128) {
+        shared[threadIdx.x] += shared[threadIdx.x + 128];
+        __syncthreads();
+    }
+
+    if(blocksize >= 128 && threadIdx.x < 64) {
+        shared[threadIdx.x] += shared[threadIdx.x + 64];
+        __syncthreads();
+    }
+
+
+    double v = shared[threadIdx.x];
+
+    if(threadIdx.x < 32) {
+        v += __shfl_down_sync(0xFFFFFFFF, v, 32);
+        v += __shfl_down_sync(0xFFFFFFFF, v, 16);
+        v += __shfl_down_sync(0xFFFFFFFF, v,  8);
+        v += __shfl_down_sync(0xFFFFFFFF, v,  4); 
+        v += __shfl_down_sync(0xFFFFFFFF, v,  2); 
+        v += __shfl_down_sync(0xFFFFFFFF, v,  1); 
+    }
+
+    if(threadIdx.x == 0 && v != 0.0) {
+        atomicAdd(acc, v);
+    }
+
+}
+
+
+
+__global__
+void memcpy_gpu(double *dst, double *src, size_t size) {
+
+    const size_t GRIDE_STRIDE_SIZE = gridDim.x * blockDim.x;
+
+    for(size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size; i += GRIDE_STRIDE_SIZE) {
+
+        dst[i] = src[i];
 
     }
 
@@ -432,14 +504,16 @@ int main(int argc, char** argv) {
     }
 
 
-    size_t THREADS_PER_BLOCK = atol(argv[1]);
-    const char* INPUT_CFG = argv[2];
-    const char* OUTPUT_PATH = argv[3];
-    size_t STEPS = atol(argv[4]);
-    size_t REDUCE = atol(argv[5]);
-    float THICKNESS = atof(argv[6]);
+    size_t THREADS_PER_BLOCK    = atol(argv[1]);
+    const char* INPUT_CFG       = argv[2];
+    const char* OUTPUT_PATH     = argv[3];
+    size_t STEPS                = atol(argv[4]);
+    size_t REDUCE               = atol(argv[5]);
+    float THICKNESS             = atof(argv[6]);
 
     
+
+
     
     cudaDeviceProp props;
     if(cudaGetDeviceProperties(&props, 0) != cudaSuccess) {
@@ -454,6 +528,11 @@ int main(int argc, char** argv) {
 
     if(THREADS_PER_BLOCK * THREADS_PER_BLOCK > props.maxThreadsPerBlock) {
         std::cout << "Error: THREADS_PER_BLOCK must be <= " << props.maxThreadsPerBlock << std::endl;
+        return 1;
+    }
+
+    if(THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2 > props.sharedMemPerBlock) {
+        std::cout << "Error: THREADS_PER_BLOCK^2 must be <= " << props.sharedMemPerBlock / (sizeof(double) * 2) << std::endl;
         return 1;
     }
 
@@ -477,13 +556,25 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-
 #if defined(DEBUG)
-    fprintf(stdout, "Device '%s' props:\n", props.name);
-    fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
-    fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
-    fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
-    fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
+
+    int count;
+    if(cudaGetDeviceCount(&count) != cudaSuccess) {
+        std::cout << "Error: cudaGetDeviceCount" << std::endl;
+        return 1;
+    }
+
+    for(size_t i = 0; i < count; i++) {
+        cudaGetDeviceProperties(&props, i);
+        fprintf(stdout, "Device '%s' (%d) props:\n", props.name, props.multiGpuBoardGroupID);
+        fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
+        fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
+        fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
+        fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
+    }
+
+    cudaGetDeviceProperties(&props, 0);
+
 #endif
 
 
@@ -500,14 +591,37 @@ int main(int argc, char** argv) {
     size_t M = sciara->domain->rows;
     size_t N = sciara->domain->cols;
 
-    dim3 threads (
+
+
+    dim3 threads_1d (
+        THREADS_PER_BLOCK * THREADS_PER_BLOCK
+    );
+
+    dim3 threads_2d (
         THREADS_PER_BLOCK,
         THREADS_PER_BLOCK
     );
 
-    dim3 grid {
+    dim3 wgrid {
         max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK)),
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK))
+    };
+    
+    dim3 wgrid_stride_2 {
+        max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK / 2)),
+        max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK / 2))
+    };
+
+    dim3 mgrid_stride_8 {
+        max(1U, (unsigned int) ceil(double(M * N) / THREADS_PER_BLOCK / 8)),
+    };
+
+    dim3 rgrid_stride_8 {
+        max(1U, (unsigned int) ceil(double(M * N) / THREADS_PER_BLOCK / 8))
+    };
+
+    dim3 vgrid {
+        max(1U, (unsigned int) ceil(double(sizeof(vents) / sizeof(vents[0])) / THREADS_PER_BLOCK)),
     };
 
 
@@ -515,15 +629,14 @@ int main(int argc, char** argv) {
     simulationInitialize(sciara);
 
 
-    assert(sciara->simulation->vent.size() == 2);
+    TVent h_vent[sciara->simulation->vent.size()];
 
-
-    TVent h_vent[2];
-
-    for(size_t i = 0; i < 2; i++) {
+    for(size_t i = 0; i < sciara->simulation->vent.size(); i++) {
         memcpy(&h_vent[i], &sciara->simulation->vent[i], sizeof(TVent));
     }
 
+
+    assert(sciara->simulation->vent.size() == VENTS_COUNT);
 
     if(cudaMemcpyToSymbol(vents, h_vent, sizeof(TVent) * sciara->simulation->vent.size()) != cudaSuccess) {
         std::cout << "Error: cudaMemcpyToSymbol 'h_vent'" << std::endl;
@@ -574,7 +687,7 @@ int main(int argc, char** argv) {
         sciara->simulation->step++;
 
 
-        emit_lava<<<grid, threads>>> (
+        emit_lava<<<vgrid, threads_1d>>> (
             M, N,
             sciara->simulation->elapsed_time,
             sciara->parameters->Pclock,
@@ -583,12 +696,11 @@ int main(int argc, char** argv) {
             sciara->parameters->PTvent,
             sciara->substates->Sh,
             sciara->substates->ST,
-            sciara->substates->ST_next,
             d_total_emitted_lava
         );
 
 
-        compute_outflows<<<grid, threads>>> (
+        compute_outflows<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
             M, N,
             sciara->substates->Sz,
             sciara->substates->Sh,
@@ -598,23 +710,28 @@ int main(int argc, char** argv) {
             sciara->parameters->a,
             sciara->parameters->b,
             sciara->parameters->c,
-            sciara->parameters->d
+            sciara->parameters->d,
+            THREADS_PER_BLOCK
         );
 
 
-        mass_balance<<<grid, threads>>> (
+
+        memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(sciara->substates->ST_next, sciara->substates->ST, M * N);
+
+        mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
             M, N,
             sciara->substates->Sh,
             sciara->substates->ST,
             sciara->substates->ST_next,
-            sciara->substates->Mf
+            sciara->substates->Mf,
+            THREADS_PER_BLOCK
         );
 
-        memcpy_gpu<<<grid, threads>>>(sciara->substates->ST, sciara->substates->ST_next, M, N);
+        memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(sciara->substates->ST, sciara->substates->ST_next, M * N);
 
 
 
-        compute_new_temperature_and_solidification<<<grid, threads>>> (
+        compute_new_temperature_and_solidification<<<wgrid_stride_2, threads_2d>>> (
             M, N,
             sciara->parameters->Pepsilon,
             sciara->parameters->Psigma,
@@ -627,7 +744,6 @@ int main(int argc, char** argv) {
             sciara->substates->Sz,
             sciara->substates->Sh,
             sciara->substates->ST,
-            sciara->substates->ST_next,
             sciara->substates->Mf,
             sciara->substates->Mhs,
             sciara->substates->Mb
@@ -638,8 +754,8 @@ int main(int argc, char** argv) {
 
             cudaMemset(d_total_current_lava, 0, sizeof(float));
 
-            reduce_add<<<grid, threads>>>(
-                M, N,
+            reduce_add<<<rgrid_stride_8, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
+                M * N,
                 sciara->substates->Sh,
                 d_total_current_lava
             );
