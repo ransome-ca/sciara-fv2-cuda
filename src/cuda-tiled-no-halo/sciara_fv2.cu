@@ -54,6 +54,7 @@ void emit_lava (
     double PTvent,
     double* Sh,
     double* ST,
+    double* ST_next,
     float* total_emitted_lava
 ) {
 
@@ -71,6 +72,7 @@ void emit_lava (
 
         SET(Sh, c, i, j, GET(Sh, c, i, j) + v);
         SET(ST, c, i, j, PTvent);
+        SET(ST_next, c, i, j, PTvent);
 
         if(v != 0.0) {
             atomicAdd(total_emitted_lava, v);
@@ -360,6 +362,7 @@ void compute_new_temperature_and_solidification (
     double *Sz,
     double *Sh,
     double *ST,
+    double *ST_next,
     double *Mf,
     double *Mhs,
     bool   *Mb
@@ -387,12 +390,15 @@ void compute_new_temperature_and_solidification (
             if(nT > PTsol) {
 
                 SET(ST, c, i, j, nT);
+                SET(ST_next, c, i, j, nT);
             
             } else {
 
                 SET(Sz, c, i, j, GET(Sz, c, i, j) + h);
                 SET(Sh, c, i, j, 0.0);
+
                 SET(ST, c, i, j, PTsol);
+                SET(ST_next, c, i, j, PTsol);
 
                 SET(Mhs, c, i, j, GET(Mhs, c, i, j) + h);
 
@@ -696,6 +702,7 @@ int main(int argc, char** argv) {
             sciara->parameters->PTvent,
             sciara->substates->Sh,
             sciara->substates->ST,
+            sciara->substates->ST_next,
             d_total_emitted_lava
         );
 
@@ -715,8 +722,6 @@ int main(int argc, char** argv) {
         );
 
 
-
-        memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(sciara->substates->ST_next, sciara->substates->ST, M * N);
 
         mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
             M, N,
@@ -744,6 +749,7 @@ int main(int argc, char** argv) {
             sciara->substates->Sz,
             sciara->substates->Sh,
             sciara->substates->ST,
+            sciara->substates->ST_next,
             sciara->substates->Mf,
             sciara->substates->Mhs,
             sciara->substates->Mb
