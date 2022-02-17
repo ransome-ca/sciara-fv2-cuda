@@ -6,17 +6,28 @@ const int _Xi[] = {0, -1,  0,  0,  1, -1,  1,  1, -1}; // Xj: Moore neighborhood
 const int _Xj[] = {0,  0, -1,  1,  0, -1, -1,  1,  1}; // Xj: Moore neighborhood col coordinates (see below)
 
 
+template <typename T>
+static void __malloc(T** ptr, size_t size)
+{
+  *ptr = (T*) malloc(size);
+  if (*ptr == NULL)
+  {
+    printf("Error: malloc failed\n");
+    exit(1);
+  }
+}
+
 void allocateSubstates(Sciara *sciara) {
 
-  cudaMallocManaged(&sciara->substates->Sz,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->Sz_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->Sh,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->Sh_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->ST,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->ST_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
-  cudaMallocManaged(&sciara->substates->Mf,       sciara->domain->rows * sciara->domain->cols * sizeof(double) * NUMBER_OF_OUTFLOWS);
-  cudaMallocManaged(&sciara->substates->Mb,       sciara->domain->rows * sciara->domain->cols * sizeof(bool));
-  cudaMallocManaged(&sciara->substates->Mhs,      sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->Sz,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->Sz_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->Sh,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->Sh_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->ST,       sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->ST_next,  sciara->domain->rows * sciara->domain->cols * sizeof(double));
+  __malloc(&sciara->substates->Mf,       sciara->domain->rows * sciara->domain->cols * sizeof(double) * NUMBER_OF_OUTFLOWS);
+  __malloc(&sciara->substates->Mb,       sciara->domain->rows * sciara->domain->cols * sizeof(bool));
+  __malloc(&sciara->substates->Mhs,      sciara->domain->rows * sciara->domain->cols * sizeof(double));
 
   memset(sciara->substates->Sz,       0, sciara->domain->rows * sciara->domain->cols * sizeof(double));
   memset(sciara->substates->Sz_next,  0, sciara->domain->rows * sciara->domain->cols * sizeof(double));

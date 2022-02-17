@@ -12,7 +12,7 @@
 #include <new>
 #include <cassert>
 
-#include <mpi.h>
+#include <omp.h>
 
 
 
@@ -36,6 +36,9 @@
 #endif
 
 
+#define OUTSIDE(i, o, s)  \
+    (i < o || i >= o + s)
+
 
 
 
@@ -48,8 +51,9 @@ __constant__ TVent vents[VENTS_COUNT];
 __global__
 void emit_lava (
     size_t r, 
-    size_t c, 
-    size_t rank,
+    size_t c,
+    size_t offset,
+    size_t offset_size,
     double elapsed_time, 
     double Pclock, 
     double emission_time,
@@ -72,7 +76,7 @@ void emit_lava (
         const size_t j = vents[k].x();
 
 
-        if((i >= ((r * c) >> 1) * rank) && (i < ((r * c) >> 1) * (rank + 1))) {
+        if(i >= offset && i < offset_size) {
 
             double v = vents[k].thickness(elapsed_time, Pclock, emission_time, Pac);
 
@@ -97,8 +101,11 @@ void compute_outflows(
     size_t r,
     size_t c,
     size_t offset,
+    size_t offset_size,
     double* Sz,
+    double* Sz_halo,
     double* Sh,
+    double* Sh_halo,
     double* ST,
     double* Mf,
     double Pc,
@@ -134,7 +141,12 @@ void compute_outflows(
 
     
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x + offset;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y + offset;
+    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+
+
+    if(OUTSIDE(i, offset, offset_size))
+        return;
+
 
 
     if(i < r && j < c) {
@@ -167,15 +179,25 @@ void compute_outflows(
         #pragma unroll
         for(size_t k = 0; k < MOORE_NEIGHBORS; k++) {
 
-            if(threadIdx.x + Xi[k] >= blockDim.x || threadIdx.y + Xj[k] >= blockDim.y) {
-                
-                sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
-                h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);
 
+            if(OUTSIDE(i + Xi[k], offset, offset_size)) {
+
+                sz    = GET(Sz_halo, c, i + Xi[k], j + Xj[k]);
+                h[k]  = GET(Sh_halo, c, i + Xi[k], j + Xj[k]);   
+            
             } else {
+            
+                if(threadIdx.x + Xi[k] >= blockDim.x || threadIdx.y + Xj[k] >= blockDim.y) {
 
-                sz    = sz_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
-                h[k]  = sh_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                    sz    = GET(Sz, c, i + Xi[k], j + Xj[k]);
+                    h[k]  = GET(Sh, c, i + Xi[k], j + Xj[k]);        
+
+                } else {
+
+                    sz    = sz_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+                    h[k]  = sh_shared[TILE_PITCH * (threadIdx.y + Xj[k]) + threadIdx.x + Xi[k]];
+
+                }
 
             }
 
@@ -286,10 +308,13 @@ void mass_balance (
     size_t r,
     size_t c,
     size_t offset,
+    size_t offset_size,
     double* Sh,
     double* ST,
+    double* ST_halo,
     double* ST_next,
     double* Mf,
+    double* Mf_halo,
     size_t TILE_PITCH
 ) {
 
@@ -299,7 +324,10 @@ void mass_balance (
     const uint8_t inflows_indices[NUMBER_OF_OUTFLOWS] = { 3, 2, 1, 0, 6, 7, 4, 5 };
 
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x + offset;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y + offset;
+    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(OUTSIDE(i, offset, offset_size))
+        return;
 
 
     if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
@@ -323,18 +351,30 @@ void mass_balance (
         #pragma unroll
         for(size_t n = 1; n < MOORE_NEIGHBORS; n++) {
 
-            if(threadIdx.x + Xi[n] >= blockDim.x || threadIdx.y + Xj[n] >= blockDim.y) {
 
-                t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+            if(OUTSIDE(i + Xi[n], offset, offset_size)) {
 
+                t_neigh = GET(ST_halo, c, i + Xi[n], j + Xj[n]);
+                inflow  = BUF_GET(Mf_halo, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
+            
             } else {
 
-                t_neigh = st_shared[TILE_PITCH * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+                if(threadIdx.x + Xi[n] >= blockDim.x || threadIdx.y + Xj[n] >= blockDim.y) {
+
+                    t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+
+                } else {
+
+                    t_neigh = st_shared[TILE_PITCH * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+
+                }
+
+
+                inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
 
             }
 
-
-            inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
+            
             outflow = BUF_GET(Mf, r, c, n - 1, i, j);
 
             h_next += inflow - outflow;
@@ -362,6 +402,7 @@ void compute_new_temperature_and_solidification (
     size_t r,
     size_t c,
     size_t offset,
+    size_t offset_size,
     double Pepsilon,
     double Psigma,
     double Pclock,
@@ -380,7 +421,10 @@ void compute_new_temperature_and_solidification (
 ) {
 
     const size_t i = blockIdx.x * blockDim.x + threadIdx.x + offset;
-    const size_t j = blockIdx.y * blockDim.y + threadIdx.y + offset;
+    const size_t j = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if(OUTSIDE(i, offset, offset_size))
+        return;
 
 
     double nT;
@@ -413,6 +457,7 @@ void compute_new_temperature_and_solidification (
         }
 
     }
+        
 
 }
 
@@ -490,19 +535,6 @@ void memcpy_gpu(double *dst, double *src, size_t size) {
 int main(int argc, char** argv) {
 
 
-    int rank;
-    int num_procs;
-
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-
-
-#if defined(DEBUG)
-    std::cout << "Running node #" << rank << " of " << num_procs << std::endl;
-#endif
-
-
 #if defined(DEBUG)
 
     const char* __argv[] = {
@@ -538,7 +570,7 @@ int main(int argc, char** argv) {
     
     
     cudaDeviceProp props;
-    if(cudaGetDeviceProperties(&props, rank) != cudaSuccess) {
+    if(cudaGetDeviceProperties(&props, 0) != cudaSuccess) {
         std::cout << "Error: cudaGetDeviceProperties" << std::endl;
         return 1;
     }
@@ -578,37 +610,58 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+
+
+    int num_procs;
+    if(cudaGetDeviceCount(&num_procs) != cudaSuccess) {
+        std::cout << "Error: cudaGetDeviceCount" << std::endl;
+        return 1;
+    }
+
+
+    for(size_t rank = 0; rank < num_procs; rank++) {
+
+        if(cudaSetDevice(rank) != cudaSuccess) {
+            std::cout << "Error: cudaSetDevice #" << rank << std::endl;
+            return 1;
+        }
+
+        int is_able;
+        if(cudaDeviceCanAccessPeer(&is_able, rank, !rank) != cudaSuccess) {
+            std::cout << "Error: cudaDeviceCanAccessPeer #" << rank << std::endl;
+            return 1;
+        }
+
+        if(is_able) {
+            if(cudaDeviceEnablePeerAccess(!rank, 0) != cudaSuccess) {
+                std::cout << "Error: cudaDeviceEnablePeerAccess #" << rank << std::endl;
+                return 1;
+            }
+
 #if defined(DEBUG)
+            std::cout << "cudaDeviceEnablePeerAccess #" << rank << " to #" << !rank << std::endl;
+#endif
+        }
 
-    fprintf(stdout, "Device '%s' (%d) props:\n", props.name, props.multiGpuBoardGroupID);
-    fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
-    fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
-    fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
-    fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
-    fprintf(stdout, " - props.unifiedAddressing: %d\n", props.unifiedAddressing);
 
+#if defined(DEBUG)
+        {
+            cudaDeviceProp props;
+            cudaGetDeviceProperties(&props, rank);
+            fprintf(stdout, "Device '%s' (%d) props:\n", props.name, props.multiGpuBoardGroupID);
+            fprintf(stdout, " - props.warpSize: %lu\n", props.warpSize);
+            fprintf(stdout, " - props.maxThreadsPerBlock: %lu\n", props.maxThreadsPerBlock);
+            fprintf(stdout, " - props.sharedMemPerBlock: %lu\n", props.sharedMemPerBlock);
+            fprintf(stdout, " - props.totalConstMem: %lu\n", props.totalConstMem);
+            fprintf(stdout, " - props.unifiedAddressing: %d\n", props.unifiedAddressing);
+        }
 #endif
 
 
-    if(cudaSetDevice(rank) != cudaSuccess) {
-        std::cout << "Error: cudaSetDevice #" << rank << std::endl;
-        return 1;
-    }
-
-    int is_able;
-    if(cudaDeviceCanAccessPeer(&is_able, rank, !rank) != cudaSuccess) {
-        std::cout << "Error: cudaDeviceCanAccessPeer #" << rank << std::endl;
-        return 1;
-    }
-
-    if(is_able) {
-        if(cudaDeviceEnablePeerAccess(!rank, 0) != cudaSuccess) {
-            std::cout << "Error: cudaDeviceEnablePeerAccess #" << rank << std::endl;
-            return 1;
-        }
     }
 
 
+    cudaSetDevice(0);
 
 
     Sciara* sciara;
@@ -639,11 +692,6 @@ int main(int argc, char** argv) {
         max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK))
     };
     
-    dim3 wgrid_stride_2 {
-        max(1U, (unsigned int) ceil(double(M) / THREADS_PER_BLOCK / 2 / num_procs)),
-        max(1U, (unsigned int) ceil(double(N) / THREADS_PER_BLOCK / 2))
-    };
-
     dim3 mgrid_stride_8 {
         max(1U, (unsigned int) ceil(double(M * N) / THREADS_PER_BLOCK / 8 / num_procs)),
     };
@@ -670,34 +718,52 @@ int main(int argc, char** argv) {
 
     assert(sciara->simulation->vent.size() == VENTS_COUNT);
 
-    if(cudaMemcpyToSymbol(vents, h_vent, sizeof(TVent) * sciara->simulation->vent.size()) != cudaSuccess) {
-        std::cout << "Error: cudaMemcpyToSymbol 'h_vent'" << std::endl;
-        return 1;
+
+    for(size_t rank = 0; rank < num_procs; rank++) {
+
+        if(cudaSetDevice(rank) != cudaSuccess) {
+            std::cout << "Error: cudaSetDevice #" << rank << std::endl;
+            return 1;
+        }
+
+        if(cudaMemcpyToSymbol(vents, h_vent, sizeof(TVent) * sciara->simulation->vent.size()) != cudaSuccess) {
+            std::cout << "Error: cudaMemcpyToSymbol 'h_vent'" << std::endl;
+            return 1;
+        }
+
+        if(cudaMemcpyToSymbol(Xi, sciara->X->Xi, sizeof(int) * MOORE_NEIGHBORS) != cudaSuccess) {
+            std::cout << "Error: cudaMemcpyToSymbol 'Xi'" << std::endl;
+            return 1;
+        }
+
+        if(cudaMemcpyToSymbol(Xj, sciara->X->Xj, sizeof(int) * MOORE_NEIGHBORS) != cudaSuccess) {
+            std::cout << "Error: cudaMemcpyToSymbol 'Xj'" << std::endl;
+            return 1;
+        }
+
     }
 
-    if(cudaMemcpyToSymbol(Xi, sciara->X->Xi, sizeof(int) * MOORE_NEIGHBORS) != cudaSuccess) {
-        std::cout << "Error: cudaMemcpyToSymbol 'Xi'" << std::endl;
-        return 1;
-    }
-
-    if(cudaMemcpyToSymbol(Xj, sciara->X->Xj, sizeof(int) * MOORE_NEIGHBORS) != cudaSuccess) {
-        std::cout << "Error: cudaMemcpyToSymbol 'Xj'" << std::endl;
-        return 1;
-    }
-
-
+    cudaSetDevice(0);
 
 
     float* d_total_emitted_lava;
-    float* d_total_current_lava;
+    float* d_total_current_lava[num_procs];
+
+
+    for(size_t rank = 0; rank < num_procs; rank++) {
+
+        cudaSetDevice(rank);
+        
+        if(cudaMalloc(&d_total_current_lava[rank], sizeof(float)) != cudaSuccess) {
+            std::cout << "Error: cudaMallocManaged 'total_current_lava'" << std::endl;
+            return 1;
+        }
+
+    }
+
 
     if(cudaMalloc(&d_total_emitted_lava, sizeof(float)) != cudaSuccess) {
         std::cout << "Error: cudaMallocManaged 'total_emitted_lava'" << std::endl;
-        return 1;
-    }
-
-    if(cudaMalloc(&d_total_current_lava, sizeof(float)) != cudaSuccess) {
-        std::cout << "Error: cudaMallocManaged 'total_current_lava'" << std::endl;
         return 1;
     }
 
@@ -709,44 +775,58 @@ int main(int argc, char** argv) {
 
     float total_emitted_lava =  0.0f;
     float total_current_lava = -1.0f;
-
-    float local_current_lava = 0.0f;
-    float world_current_lava = 0.0f;
+    float local_current_lava = -1.0f;
 
 
-    double* Sh;
-    double* Sz;
-    double* ST;
-    double* ST_next;
-    double* Mf;
-    double* Mhs;
-    bool*   Mb;
-
-    cudaMalloc(&Sh, sizeof(double) * M * N);
-    cudaMalloc(&Sz, sizeof(double) * M * N);
-    cudaMalloc(&ST, sizeof(double) * M * N);
-    cudaMalloc(&ST_next, sizeof(double) * M * N);
-    cudaMalloc(&Mf, sizeof(double) * M * N * NUMBER_OF_OUTFLOWS);
-    cudaMalloc(&Mhs, sizeof(double) * M * N);
-    cudaMalloc(&Mb, sizeof(bool) * M * N);
-
-    cudaMemcpy(Sh, sciara->substates->Sh, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(Sz, sciara->substates->Sz, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(ST, sciara->substates->ST, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(ST_next, sciara->substates->ST_next, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(Mf, sciara->substates->Mf, sizeof(double) * M * N * NUMBER_OF_OUTFLOWS, cudaMemcpyDefault);
-    cudaMemcpy(Mhs, sciara->substates->Mhs, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(Mb, sciara->substates->Mb, sizeof(bool) * M * N, cudaMemcpyDefault);
+    double* Sh[num_procs];
+    double* Sz[num_procs];
+    double* ST[num_procs];
+    double* ST_next[num_procs];
+    double* ST_temp[num_procs];
+    double* Mf[num_procs];
+    double* Mhs[num_procs];
+    bool*   Mb[num_procs];
 
 
+    #pragma omp parallel for num_threads(num_procs)
+    for(size_t rank = 0; rank < num_procs; rank++) {
 
-    uintptr_t WORLD_RANK =  !rank;
-    uintptr_t LOCAL_RANK = !!rank;
+        cudaSetDevice(rank);
+
+        cudaMalloc(&Sz[rank], sizeof(double) * M * N);
+        cudaMalloc(&Sh[rank], sizeof(double) * M * N);
+        cudaMalloc(&ST[rank], sizeof(double) * M * N);
+        cudaMalloc(&ST_next[rank], sizeof(double) * M * N);
+        cudaMalloc(&ST_temp[rank], sizeof(double) * M * N);
+        cudaMalloc(&Mf[rank], sizeof(double) * M * N * NUMBER_OF_OUTFLOWS);
+        cudaMalloc(&Mhs[rank], sizeof(double) * M * N);
+        cudaMalloc(&Mb[rank], sizeof(bool) * M * N);
+
+        cudaMemcpy(Sh[rank], sciara->substates->Sh, sizeof(double) * M * N, cudaMemcpyDefault);
+        cudaMemcpy(Sz[rank], sciara->substates->Sz, sizeof(double) * M * N, cudaMemcpyDefault);
+        cudaMemcpy(ST[rank], sciara->substates->ST, sizeof(double) * M * N, cudaMemcpyDefault);
+        cudaMemcpy(ST_next[rank], sciara->substates->ST_next, sizeof(double) * M * N, cudaMemcpyDefault);
+        cudaMemcpy(Mf[rank], sciara->substates->Mf, sizeof(double) * M * N * NUMBER_OF_OUTFLOWS, cudaMemcpyDefault);
+        cudaMemcpy(Mhs[rank], sciara->substates->Mhs, sizeof(double) * M * N, cudaMemcpyDefault);
+        cudaMemcpy(Mb[rank], sciara->substates->Mb, sizeof(bool) * M * N, cudaMemcpyDefault);
+
+    }
+
+    cudaSetDevice(0);
+
+
+
+
+    #define WORLD_RANK       !rank
+    #define LOCAL_RANK      !!rank
+
     uintptr_t WORLD_SIZE = M * N;
     uintptr_t LOCAL_SIZE = M * N / num_procs;
 
+    uintptr_t LOCAL_ROWS = M / num_procs;
+    uintptr_t LOCAL_COLS = N / num_procs;
 
-    MPI_Barrier(MPI_COMM_WORLD);
+
 
 
     util::Timer cl_timer;
@@ -757,130 +837,148 @@ int main(int argc, char** argv) {
         sciara->simulation->step++;
 
 
-        emit_lava<<<vgrid, threads_1d>>> (
-            M, N, LOCAL_RANK,
-            sciara->simulation->elapsed_time,
-            sciara->parameters->Pclock,
-            sciara->simulation->emission_time,
-            sciara->parameters->Pac,
-            sciara->parameters->PTvent,
-            Sh,
-            ST,
-            ST_next,
-            d_total_emitted_lava
-        );
+        #pragma omp paraller for num_threads(num_procs) schedule(static)
+        for(size_t rank = 0; rank < num_procs; rank++) {
 
-        cudaDeviceSynchronize();
+            cudaSetDevice(rank);
 
-        cudaMemcpy(&sciara->substates->Sh[LOCAL_SIZE - WORLD_RANK], &Sh[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-        cudaMemcpy(&sciara->substates->Sz[LOCAL_SIZE - WORLD_RANK], &Sz[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-
-        MPI_Sendrecv(&sciara->substates->Sh[LOCAL_SIZE - WORLD_RANK], N, MPI_DOUBLE, WORLD_RANK, 0,
-                     &sciara->substates->Sh[LOCAL_SIZE - LOCAL_RANK], N, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        MPI_Sendrecv(&sciara->substates->Sz[LOCAL_SIZE - WORLD_RANK], N, MPI_DOUBLE, WORLD_RANK, 0,
-                     &sciara->substates->Sz[LOCAL_SIZE - LOCAL_RANK], N, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        cudaMemcpy(&Sz[LOCAL_SIZE - WORLD_RANK], &sciara->substates->Sz[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-        cudaMemcpy(&Sh[LOCAL_SIZE - WORLD_RANK], &sciara->substates->Sh[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-
-
-
-        compute_outflows<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
-            M, N, LOCAL_SIZE * LOCAL_RANK,
-            Sz,
-            Sh,
-            ST,
-            Mf,
-            sciara->parameters->Pc,
-            sciara->parameters->a,
-            sciara->parameters->b,
-            sciara->parameters->c,
-            sciara->parameters->d,
-            THREADS_PER_BLOCK
-        );
-
-        cudaDeviceSynchronize();
-
-        cudaMemcpy(&sciara->substates->ST[LOCAL_SIZE - WORLD_RANK], &ST[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-
-        MPI_Sendrecv(&sciara->substates->ST[LOCAL_SIZE - WORLD_RANK], N, MPI_DOUBLE, WORLD_RANK, 0,
-                     &sciara->substates->ST[LOCAL_SIZE - LOCAL_RANK], N, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-        cudaMemcpy(&ST[LOCAL_SIZE - WORLD_RANK], &sciara->substates->ST[LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-
-
-        for(size_t k = 0; k < NUMBER_OF_OUTFLOWS; k++) {
-
-            cudaMemcpy(&sciara->substates->Mf[(WORLD_SIZE * k) + LOCAL_SIZE - WORLD_RANK], &Mf[(WORLD_SIZE * k) + LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
-
-            MPI_Sendrecv(&sciara->substates->Mf[(WORLD_SIZE * k) + LOCAL_SIZE - WORLD_RANK], N, MPI_DOUBLE, WORLD_RANK, 0,
-                         &sciara->substates->Mf[(WORLD_SIZE * k) + LOCAL_SIZE - LOCAL_RANK], N, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            cudaMemcpy(&Mf[(WORLD_SIZE * k) + LOCAL_SIZE - WORLD_RANK], &sciara->substates->Mf[(WORLD_SIZE * k) + LOCAL_SIZE - WORLD_RANK], N * sizeof(double), cudaMemcpyDefault);
+            emit_lava<<<vgrid, threads_1d>>> (
+                M, N,
+                LOCAL_ROWS * LOCAL_RANK,
+                LOCAL_ROWS,
+                sciara->simulation->elapsed_time,
+                sciara->parameters->Pclock,
+                sciara->simulation->emission_time,
+                sciara->parameters->Pac,
+                sciara->parameters->PTvent,
+                Sh[LOCAL_RANK],
+                ST[LOCAL_RANK],
+                ST_next[LOCAL_RANK],
+                d_total_emitted_lava
+            );
 
         }
 
 
-        mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
-            M, N, LOCAL_SIZE * LOCAL_RANK,
-            Sh,
-            ST,
-            ST_next,
-            Mf,
-            THREADS_PER_BLOCK
-        );
 
-        memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(&ST[LOCAL_SIZE * LOCAL_RANK], &ST_next[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE);
+        #pragma omp paraller for num_threads(num_procs) schedule(static)
+        for(size_t rank = 0; rank < num_procs; rank++) {
+
+            cudaSetDevice(rank);
+
+            compute_outflows<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * 2>>> (
+                M, N,
+                LOCAL_ROWS * LOCAL_RANK,
+                LOCAL_ROWS,
+                Sz[LOCAL_RANK], Sz[WORLD_RANK],
+                Sh[LOCAL_RANK], Sh[WORLD_RANK],
+                ST[LOCAL_RANK],
+                Mf[LOCAL_RANK],
+                sciara->parameters->Pc,
+                sciara->parameters->a,
+                sciara->parameters->b,
+                sciara->parameters->c,
+                sciara->parameters->d,
+                THREADS_PER_BLOCK
+            );
+
+        }
 
 
 
-        compute_new_temperature_and_solidification<<<wgrid_stride_2, threads_2d>>> (
-            M, N, LOCAL_SIZE * LOCAL_RANK,
-            sciara->parameters->Pepsilon,
-            sciara->parameters->Psigma,
-            sciara->parameters->Pclock,
-            sciara->parameters->Pcool,
-            sciara->parameters->Prho,
-            sciara->parameters->Pcv,
-            sciara->parameters->Pac,
-            sciara->parameters->PTsol,
-            Sz,
-            Sh,
-            ST,
-            ST_next,
-            Mf,
-            Mhs,
-            Mb
-        );
+        cudaMemcpyPeerAsync(&ST_temp[0][LOCAL_SIZE - 0], 0, &ST[1][LOCAL_SIZE - 0], 1, sizeof(double) * N);
+        cudaMemcpyPeerAsync(&ST_temp[1][LOCAL_SIZE - N], 1, &ST[0][LOCAL_SIZE - N], 0, sizeof(double) * N);
+
+        #pragma omp paraller for num_threads(num_procs) schedule(static)
+        for(size_t rank = 0; rank < num_procs; rank++) {
+
+            cudaSetDevice(rank);
+
+            mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
+                M, N,
+                LOCAL_ROWS * LOCAL_RANK,
+                LOCAL_ROWS,
+                Sh[LOCAL_RANK],
+                ST[LOCAL_RANK], 
+                ST_temp[LOCAL_RANK],
+                ST_next[LOCAL_RANK],
+                Mf[LOCAL_RANK], Mf[WORLD_RANK],
+                THREADS_PER_BLOCK
+            );
+
+        }
+
+        #pragma omp paraller for num_threads(num_procs) schedule(static)
+        for(size_t rank = 0; rank < num_procs; rank++) {
+
+            cudaSetDevice(rank);
+
+            memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(&ST[rank][LOCAL_SIZE * LOCAL_RANK], &ST_next[rank][LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE);
+
+        }
+
+
+
+        #pragma omp paraller for num_threads(num_procs) schedule(static)
+        for(size_t rank = 0; rank < num_procs; rank++) {
+
+            cudaSetDevice(rank);
+
+            compute_new_temperature_and_solidification<<<wgrid, threads_2d>>> (
+                M, N,
+                LOCAL_ROWS * LOCAL_RANK,
+                LOCAL_ROWS,
+                sciara->parameters->Pepsilon,
+                sciara->parameters->Psigma,
+                sciara->parameters->Pclock,
+                sciara->parameters->Pcool,
+                sciara->parameters->Prho,
+                sciara->parameters->Pcv,
+                sciara->parameters->Pac,
+                sciara->parameters->PTsol,
+                Sz[LOCAL_RANK],
+                Sh[LOCAL_RANK],
+                ST[LOCAL_RANK],
+                ST_next[LOCAL_RANK],
+                Mf[LOCAL_RANK],
+                Mhs[LOCAL_RANK],
+                Mb[LOCAL_RANK]
+            );
+
+        }
 
 
         if(sciara->simulation->step % REDUCE == 0) {
 
-            cudaMemset(d_total_current_lava, 0, sizeof(float));
+            total_current_lava = 0.0f;
 
-            reduce_add<<<rgrid_stride_8, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
-                LOCAL_SIZE,
-                &Sh[LOCAL_SIZE * LOCAL_RANK],
-                d_total_current_lava
-            );
+            #pragma omp paraller for num_threads(num_procs) reduction(+:total_current_lava) schedule(static)
+            for(size_t rank = 0; rank < num_procs; rank++) {
 
-            cudaDeviceSynchronize();
-            cudaMemcpy(&local_current_lava, d_total_current_lava, sizeof(float), cudaMemcpyDeviceToHost);
+                cudaSetDevice(rank);
+                cudaMemset(d_total_current_lava[rank], 0, sizeof(float));
+
+                reduce_add<<<rgrid_stride_8, threads_1d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>>(
+                    LOCAL_SIZE,
+                    &Sh[rank][LOCAL_SIZE * rank],
+                    d_total_current_lava[rank]
+                );
 
 
-            MPI_Sendrecv(&local_current_lava, 1, MPI_FLOAT, WORLD_RANK, 0,
-                         &world_current_lava, 1, MPI_FLOAT, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                cudaDeviceSynchronize();
+                cudaMemcpy(&local_current_lava, d_total_current_lava[rank], sizeof(float), cudaMemcpyDeviceToHost);
 
-            total_current_lava = local_current_lava + world_current_lava;
+
+                total_current_lava += local_current_lava;
+            
+            }
 
         }
 
 
 #if defined(DEBUG)
         if(sciara->simulation->step % 100 == 0) {
-            fprintf(stderr, "<%d> [%08d]: %3d%% (%.2f s) [%f]\n",
-                rank, 
+            fprintf(stderr, "\r[%08d]: %3d%% (%.2f s) [%f]",
                 sciara->simulation->step,
                 (int)(double(sciara->simulation->step) / 16000.0 * 100.0),
                 cl_timer.getTimeMilliseconds() / 1000.0f,
@@ -890,49 +988,32 @@ int main(int argc, char** argv) {
 
     }
 
-
     double cl_time = static_cast<double>(cl_timer.getTimeMilliseconds()) / 1000.0;
 
 
+    cudaSetDevice(0);
     cudaDeviceSynchronize();
     cudaMemcpy(&total_emitted_lava, d_total_emitted_lava, sizeof(float), cudaMemcpyDeviceToHost);
 
 
-    MPI_Sendrecv(&Sh[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                 &Sh[LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    #pragma omp paraller for num_threads(num_procs)
+    for(size_t rank = 0; rank < num_procs; rank++) {
 
-    MPI_Sendrecv(&Sz[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                 &Sz[LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        cudaSetDevice(rank);
 
-    MPI_Sendrecv(&ST[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                 &ST[LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        cudaMemcpy(&sciara->substates->Sz[LOCAL_SIZE * LOCAL_RANK],      &Sz[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK],        sizeof(double) * LOCAL_SIZE, cudaMemcpyDefault);
+        cudaMemcpy(&sciara->substates->Sh[LOCAL_SIZE * LOCAL_RANK],      &Sh[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK],        sizeof(double) * LOCAL_SIZE, cudaMemcpyDefault);
+        cudaMemcpy(&sciara->substates->ST[LOCAL_SIZE * LOCAL_RANK],      &ST[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK],        sizeof(double) * LOCAL_SIZE, cudaMemcpyDefault);
+        cudaMemcpy(&sciara->substates->Mhs[LOCAL_SIZE * LOCAL_RANK],     &Mhs[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK],       sizeof(double) * LOCAL_SIZE, cudaMemcpyDefault);
+        cudaMemcpy(&sciara->substates->Mb[LOCAL_SIZE * LOCAL_RANK],      &Mb[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK],        sizeof(bool)   * LOCAL_SIZE, cudaMemcpyDefault);
 
-    MPI_Sendrecv(&ST_next[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                 &ST_next[LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        for(size_t k = 0; k < NUMBER_OF_OUTFLOWS; k++) {
 
-    MPI_Sendrecv(&Mhs[LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                 &Mhs[LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            cudaMemcpy(&sciara->substates->Mf[LOCAL_SIZE * LOCAL_RANK + WORLD_SIZE * k], &Mf[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK + WORLD_SIZE * k], sizeof(double) * LOCAL_SIZE, cudaMemcpyDefault);
 
-    for(size_t k = 0; k < NUMBER_OF_OUTFLOWS; k++) {
-
-        MPI_Sendrecv(&Mf[(WORLD_SIZE * k) + LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0,
-                     &Mf[(WORLD_SIZE * k) + LOCAL_SIZE * WORLD_RANK], LOCAL_SIZE, MPI_DOUBLE, WORLD_RANK, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
 
     }
-
-
-
-    cudaMemcpy(sciara->substates->Sh,      Sh, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->Sz,      Sz, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->ST,      ST, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->ST_next, ST_next, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->Mf,      Mf, sizeof(double) * M * N * NUMBER_OF_OUTFLOWS, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->Mhs,     Mhs, sizeof(double) * M * N, cudaMemcpyDefault);
-    cudaMemcpy(sciara->substates->Mb,      Mb, sizeof(bool) * M * N, cudaMemcpyDefault);
-
-
-
-
 
 
 
@@ -943,23 +1024,18 @@ int main(int argc, char** argv) {
     fprintf(stdout, "Current lava [m]: %lf\n", total_current_lava);
 
 
-    if(rank == 0) {
+    fprintf(stdout, "Saving output to %s...\n", OUTPUT_PATH);
 
-        fprintf(stdout, "Saving output to %s...\n", OUTPUT_PATH);
-
-        if(saveConfiguration(OUTPUT_PATH, sciara) != 1) {
-            std::cout << "Error: saveConfiguration" << std::endl;
-            return 1;
-        }
-
+    if(saveConfiguration(OUTPUT_PATH, sciara) != 1) {
+        std::cout << "Error: saveConfiguration" << std::endl;
+        return 1;
     }
+
 
 
     fprintf(stdout, "Releasing memory...\n");
     finalize(sciara);
 
-
-    MPI_Finalize();
 
     return 0;
 

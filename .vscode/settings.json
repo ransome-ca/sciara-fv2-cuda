@@ -5,6 +5,12 @@
         "new": "cpp",
         "stdexcept": "cpp",
         "*.tcc": "cpp",
-        "cmath": "cpp"
-    }
+        "cmath": "cpp",
+        "iostream": "cpp",
+        "chrono": "cpp",
+        "algorithm": "cpp"
+    },
+    "C_Cpp.default.defines": [
+        "DEBUG"
+    ]
 }
