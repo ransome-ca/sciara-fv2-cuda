@@ -22,11 +22,13 @@
 #define GET(M, c, i, j)         ((M)[(c) * (i) + (j)])
 #define SET(M, c, i, j, val)    ((M)[(c) * (i) + (j)] = (val))
 
-#define BUF_SET(M, r, c, n, i, j, val)    \
-    ((M)[((n) * (r) * (c)) + ((i) * (c)) + (j)] = (val))
+#define BUF_GET(M, r, c, n, i, j)          \
+    ((M)[(c) * (i) * 8 + (j) * 8 + (n)])
 
-#define BUF_GET(M, r, c, n, i, j)         \
-    ((M)[((n) * (r) * (c)) + ((i) * (c)) + (j)])
+#define BUF_SET(M, r, c, n, i, j, v)       \
+    ((M)[(c) * (i) * 8 + (j) * 8 + (n)] = v)
+
+
 
 
 #if defined(PREC_DIV)
@@ -50,15 +52,15 @@ __constant__ TVent vents[VENTS_COUNT];
 
 __global__
 void emit_lava (
-    size_t r, 
-    size_t c,
-    size_t offset,
-    size_t offset_size,
-    double elapsed_time, 
-    double Pclock, 
-    double emission_time,
-    double Pac,
-    double PTvent,
+    const size_t r, 
+    const size_t c,
+    const size_t offset,
+    const size_t offset_size,
+    const double elapsed_time, 
+    const double Pclock, 
+    const double emission_time,
+    const double Pac,
+    const double PTvent,
     double* Sh,
     double* ST,
     double* ST_next,
@@ -98,22 +100,22 @@ void emit_lava (
 
 __global__
 void compute_outflows(
-    size_t r,
-    size_t c,
-    size_t offset,
-    size_t offset_size,
+    const size_t r,
+    const size_t c,
+    const size_t offset,
+    const size_t offset_size,
     double* Sz,
     double* Sz_halo,
     double* Sh,
     double* Sh_halo,
     double* ST,
     double* Mf,
-    double Pc,
-    double _a,
-    double _b,
-    double _c,
-    double _d,
-    size_t TILE_PITCH
+    const double Pc,
+    const double _a,
+    const double _b,
+    const double _c,
+    const double _d,
+    const size_t TILE_PITCH
 ) {
 
     extern __shared__ double shared[];
@@ -305,20 +307,22 @@ void compute_outflows(
 
 __global__
 void mass_balance (
-    size_t r,
-    size_t c,
-    size_t offset,
-    size_t offset_size,
+    const size_t r,
+    const size_t c,
+    const size_t offset,
+    const size_t offset_size,
     double* Sh,
     double* ST,
-    double* ST_halo,
     double* ST_next,
     double* Mf,
     double* Mf_halo,
-    size_t TILE_PITCH
+    const size_t TILE_PITCH
 ) {
 
-    extern __shared__ double st_shared[];
+    extern __shared__ double shared[];
+
+    double* st_shared = &shared[0];
+    double* mf_shared = &shared[TILE_PITCH * TILE_PITCH];
 
 
     const uint8_t inflows_indices[NUMBER_OF_OUTFLOWS] = { 3, 2, 1, 0, 6, 7, 4, 5 };
@@ -330,16 +334,30 @@ void mass_balance (
         return;
 
 
-    if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
 
-        double t_initial = GET(ST, c, i, j);
-        double h_initial = GET(Sh, c, i, j);
+    double t_initial;
+    double h_initial;
+
+    if(i < r && j < c) {
+
+        h_initial = GET(Sh, c, i, j);
+        t_initial = GET(ST, c, i, j);
 
         st_shared[TILE_PITCH * threadIdx.y + threadIdx.x] = t_initial;
 
+        #pragma unroll
+        for(size_t k = 0; k < NUMBER_OF_OUTFLOWS; k++) {
+            mf_shared[TILE_PITCH * TILE_PITCH * k + TILE_PITCH * threadIdx.y + threadIdx.x] = BUF_GET(Mf, r, c, k, i, j);
+        }
+
         __syncthreads();
 
+    }
 
+
+    if(i > 0 && j > 0 && i < r - 1 && j < c - 1) {
+
+        
         double inflow;
         double outflow;
         double t_neigh;
@@ -354,28 +372,32 @@ void mass_balance (
 
             if(OUTSIDE(i + Xi[n], offset, offset_size)) {
 
-                t_neigh = GET(ST_halo, c, i + Xi[n], j + Xj[n]);
+                t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
                 inflow  = BUF_GET(Mf_halo, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
+                outflow = BUF_GET(Mf, r, c, n - 1, i, j);
             
             } else {
 
                 if(threadIdx.x + Xi[n] >= blockDim.x || threadIdx.y + Xj[n] >= blockDim.y) {
 
                     t_neigh = GET(ST, c, i + Xi[n], j + Xj[n]);
+                    inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
+                    outflow = BUF_GET(Mf, r, c, n - 1, i, j);
 
                 } else {
 
                     t_neigh = st_shared[TILE_PITCH * (threadIdx.y + Xj[n]) + threadIdx.x + Xi[n]];
+                    outflow = mf_shared[TILE_PITCH * TILE_PITCH * (n - 1) + TILE_PITCH * threadIdx.y + threadIdx.x];
+                    inflow  = mf_shared[TILE_PITCH * TILE_PITCH * inflows_indices[n - 1] + TILE_PITCH * (threadIdx.y + Xj[n]) + (threadIdx.x + Xi[n])];
+
 
                 }
 
 
-                inflow  = BUF_GET(Mf, r, c, inflows_indices[n - 1], i + Xi[n], j + Xj[n]);
 
             }
 
             
-            outflow = BUF_GET(Mf, r, c, n - 1, i, j);
 
             h_next += inflow - outflow;
             t_next += inflow * t_neigh - outflow * t_initial;
@@ -399,18 +421,18 @@ void mass_balance (
 
 __global__
 void compute_new_temperature_and_solidification (
-    size_t r,
-    size_t c,
-    size_t offset,
-    size_t offset_size,
-    double Pepsilon,
-    double Psigma,
-    double Pclock,
-    double Pcool,
-    double Prho,
-    double Pcv,
-    double Pac,
-    double PTsol,
+    const size_t r,
+    const size_t c,
+    const size_t offset,
+    const size_t offset_size,
+    const double Pepsilon,
+    const double Psigma,
+    const double Pclock,
+    const double Pcool,
+    const double Prho,
+    const double Pcv,
+    const double Pac,
+    const double PTsol,
     double *Sz,
     double *Sh,
     double *ST,
@@ -464,7 +486,7 @@ void compute_new_temperature_and_solidification (
 
 
 __global__
-void reduce_add(size_t size, double* buffer, float* acc) {
+void reduce_add(const size_t size, const double* buffer, float* acc) {
 
     extern __shared__ double shared[];
 
@@ -518,7 +540,7 @@ void reduce_add(size_t size, double* buffer, float* acc) {
 
 
 __global__
-void memcpy_gpu(double *dst, double *src, size_t size) {
+void memcpy_gpu(double *dst, const double *src, const size_t size) {
 
     const size_t GRIDE_STRIDE_SIZE = gridDim.x * blockDim.x;
 
@@ -706,6 +728,7 @@ int main(int argc, char** argv) {
 
 
 
+
     simulationInitialize(sciara);
 
 
@@ -755,7 +778,7 @@ int main(int argc, char** argv) {
         cudaSetDevice(rank);
         
         if(cudaMalloc(&d_total_current_lava[rank], sizeof(float)) != cudaSuccess) {
-            std::cout << "Error: cudaMallocManaged 'total_current_lava'" << std::endl;
+            std::cout << "Error: cudaMalloc 'total_current_lava'" << std::endl;
             return 1;
         }
 
@@ -763,7 +786,7 @@ int main(int argc, char** argv) {
 
 
     if(cudaMalloc(&d_total_emitted_lava, sizeof(float)) != cudaSuccess) {
-        std::cout << "Error: cudaMallocManaged 'total_emitted_lava'" << std::endl;
+        std::cout << "Error: cudaMalloc 'total_emitted_lava'" << std::endl;
         return 1;
     }
 
@@ -782,7 +805,6 @@ int main(int argc, char** argv) {
     double* Sz[num_procs];
     double* ST[num_procs];
     double* ST_next[num_procs];
-    double* ST_temp[num_procs];
     double* Mf[num_procs];
     double* Mhs[num_procs];
     bool*   Mb[num_procs];
@@ -797,7 +819,6 @@ int main(int argc, char** argv) {
         cudaMalloc(&Sh[rank], sizeof(double) * M * N);
         cudaMalloc(&ST[rank], sizeof(double) * M * N);
         cudaMalloc(&ST_next[rank], sizeof(double) * M * N);
-        cudaMalloc(&ST_temp[rank], sizeof(double) * M * N);
         cudaMalloc(&Mf[rank], sizeof(double) * M * N * NUMBER_OF_OUTFLOWS);
         cudaMalloc(&Mhs[rank], sizeof(double) * M * N);
         cudaMalloc(&Mb[rank], sizeof(bool) * M * N);
@@ -886,23 +907,23 @@ int main(int argc, char** argv) {
 
 
 
-        cudaMemcpyPeerAsync(&ST_temp[0][LOCAL_SIZE - 0], 0, &ST[1][LOCAL_SIZE - 0], 1, sizeof(double) * N);
-        cudaMemcpyPeerAsync(&ST_temp[1][LOCAL_SIZE - N], 1, &ST[0][LOCAL_SIZE - N], 0, sizeof(double) * N);
+        cudaMemcpyPeerAsync(&ST[0][LOCAL_SIZE - 0], 0, &ST[1][LOCAL_SIZE - 0], 1, sizeof(double) * N);
+        cudaMemcpyPeerAsync(&ST[1][LOCAL_SIZE - N], 1, &ST[0][LOCAL_SIZE - N], 0, sizeof(double) * N);
 
         #pragma omp paraller for num_threads(num_procs) schedule(static)
         for(size_t rank = 0; rank < num_procs; rank++) {
 
             cudaSetDevice(rank);
 
-            mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double)>>> (
+            mass_balance<<<wgrid, threads_2d, THREADS_PER_BLOCK * THREADS_PER_BLOCK * sizeof(double) * (NUMBER_OF_OUTFLOWS + 1)>>> (
                 M, N,
                 LOCAL_ROWS * LOCAL_RANK,
                 LOCAL_ROWS,
                 Sh[LOCAL_RANK],
                 ST[LOCAL_RANK], 
-                ST_temp[LOCAL_RANK],
                 ST_next[LOCAL_RANK],
-                Mf[LOCAL_RANK], Mf[WORLD_RANK],
+                Mf[LOCAL_RANK], 
+                Mf[WORLD_RANK],
                 THREADS_PER_BLOCK
             );
 
@@ -913,7 +934,7 @@ int main(int argc, char** argv) {
 
             cudaSetDevice(rank);
 
-            memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(&ST[rank][LOCAL_SIZE * LOCAL_RANK], &ST_next[rank][LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE);
+            memcpy_gpu<<<mgrid_stride_8, threads_1d>>>(&ST[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK], &ST_next[LOCAL_RANK][LOCAL_SIZE * LOCAL_RANK], LOCAL_SIZE);
 
         }
 
