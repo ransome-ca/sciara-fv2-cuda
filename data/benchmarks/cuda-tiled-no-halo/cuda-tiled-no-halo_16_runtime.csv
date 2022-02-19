@@ -1,0 +1,20 @@
+==1431650== NVPROF is profiling process 1431650, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431650== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431650== Profiling result:
+"Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
+,%,ms,,ms,ms,ms,
+"GPU activities",46.882629,2804.052398,16000,0.175253,0.164416,0.334785,"mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)"
+"GPU activities",34.315024,2052.383311,16000,0.128273,0.037729,0.472098,"compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double, unsigned long)"
+"GPU activities",14.000095,837.346411,16000,0.052334,0.014880,0.190849,"compute_new_temperature_and_solidification(unsigned long, unsigned long, double, double, double, double, double, double, double, double, double*, double*, double*, double*, double*, double*, bool*)"
+"GPU activities",3.711432,221.980949,16000,0.013873,0.012832,0.024064,"memcpy_gpu(double*, double*, unsigned long)"
+"GPU activities",1.077603,64.451505,16000,0.004028,0.002528,0.007840,"emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)"
+"GPU activities",0.012000,0.717697,16,0.044856,0.041440,0.047072,"reduce_add(unsigned long, double*, float*)"
+"GPU activities",0.000716,0.042848,17,0.002520,0.002336,0.003232,"[CUDA memset]"
+"GPU activities",0.000426,0.025472,17,0.001498,0.001408,0.001888,"[CUDA memcpy DtoH]"
+"GPU activities",0.000074,0.004416,3,0.001472,0.001280,0.001824,"[CUDA memcpy HtoD]"
+
+==1431650== Unified Memory profiling result:
+"Device","Count","Avg Size","Min Size","Max Size","Total Size","Total Time",""
+"NVIDIA GeForce GTX 980 (0)",21,1.074777MB,128.000000KB,2.000000MB,22.570312MB,8.524576ms,"Host To Device"
+"NVIDIA GeForce GTX 980 (0)",295,99.253906KB,4.000000KB,0.996094MB,28.593750MB,11.588704ms,"Device To Host"
+Total CPU Page faults: 147

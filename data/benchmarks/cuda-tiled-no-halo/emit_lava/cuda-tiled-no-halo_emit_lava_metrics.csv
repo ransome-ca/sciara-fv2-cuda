@@ -1,0 +1,15 @@
+==1431677== NVPROF is profiling process 1431677, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431677== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
+==1431677== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431677== Profiling result:
+==1431677== Metric result:
+"Device","Kernel","Invocations","Metric Name","Metric Description","Min","Max","Avg"
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"flop_count_dp","Floating Point Operations(Double Precision)",76,76,76
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"gld_transactions","Global Load Transactions",18,18,18
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"gst_transactions","Global Store Transactions",6,6,6
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"l2_read_transactions","L2 Read Transactions",51,51,51
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"l2_write_transactions","L2 Write Transactions",12,12,12
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"dram_read_transactions","Device Memory Read Transactions",48,48,48
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"dram_write_transactions","Device Memory Write Transactions",24,24,24
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"sysmem_read_bytes","System Memory Read Bytes",0,0,0
+"NVIDIA GeForce GTX 980 (0)","emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)",1,"sysmem_write_bytes","System Memory Write Bytes",160,160,160

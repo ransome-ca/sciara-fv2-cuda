@@ -1,0 +1,23 @@
+==1431216== NVPROF is profiling process 1431216, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-multi-gpu 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431216== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-multi-gpu 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431216== Profiling result:
+"Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
+,%,ms,,ms,ms,ms,
+"GPU activities",48.554669,4509.753258,32000,0.140929,0.125985,0.306179,"mass_balance(unsigned long, unsigned long, unsigned long, unsigned long, double*, double*, double*, double*, double*, unsigned long)"
+"GPU activities",34.700195,3222.951013,32000,0.100717,0.011808,0.263521,"compute_outflows(unsigned long, unsigned long, unsigned long, unsigned long, double*, double*, double*, double*, double*, double*, double, double, double, double, double, unsigned long)"
+"GPU activities",11.794064,1095.431640,32000,0.034232,0.007360,0.095936,"compute_new_temperature_and_solidification(unsigned long, unsigned long, unsigned long, unsigned long, double, double, double, double, double, double, double, double, double*, double*, double*, double*, double*, double*, bool*)"
+"GPU activities",2.665630,247.583444,32000,0.007736,0.006880,0.014112,"memcpy_gpu(double*, double const *, unsigned long)"
+"GPU activities",1.248379,115.949330,32000,0.003623,0.001280,0.012448,"emit_lava(unsigned long, unsigned long, unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)"
+"GPU activities",0.675365,62.727803,32000,0.001960,0.001728,0.006080,"[CUDA memcpy PtoP]"
+"GPU activities",0.275774,25.613865,20,1.280693,0.001312,9.353090,"[CUDA memcpy HtoD]"
+"GPU activities",0.077565,7.204270,59,0.122106,0.001376,0.300161,"[CUDA memcpy DtoH]"
+"GPU activities",0.007495,0.696099,32,0.021753,0.021344,0.022304,"reduce_add(unsigned long, double const *, float*)"
+"GPU activities",0.000864,0.080258,33,0.002432,0.002336,0.003232,"[CUDA memset]"
+
+==1431216== Unified Memory profiling result:
+"Device","Count","Avg Size","Min Size","Max Size","Total Size","Total Time",""
+"NVIDIA GeForce GTX 980 (0)",1,8.000000KB,8.000000KB,8.000000KB,8.000000KB,0.005376ms,"Host To Device"
+"NVIDIA GeForce GTX 980 (0)",2,32.000000KB,4.000000KB,60.000000KB,64.000000KB,0.029216ms,"Device To Host"
+"NVIDIA GeForce GTX 980 (0)",1,1.000000MB,1.000000MB,1.000000MB,,1.048576ms,"Remote mapping to device"
+"NVIDIA GeForce GTX 980 (1)",1,1.000000MB,1.000000MB,1.000000MB,,1.048576ms,"Remote mapping from device"
+Total CPU Page faults: 1

@@ -845,7 +845,6 @@ int main(int argc, char** argv) {
     uintptr_t LOCAL_SIZE = M * N / num_procs;
 
     uintptr_t LOCAL_ROWS = M / num_procs;
-    uintptr_t LOCAL_COLS = N / num_procs;
 
 
 

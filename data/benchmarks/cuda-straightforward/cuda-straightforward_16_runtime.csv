@@ -1,0 +1,18 @@
+==1431797== NVPROF is profiling process 1431797, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-straightforward 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431797== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-straightforward 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431797== Profiling result:
+"Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
+,%,ms,,ms,ms,ms,
+"GPU activities",38.868776,4216.716939,112000,0.037649,0.034272,0.097536,"memcpy_gpu(double*, double*, int, int)"
+"GPU activities",34.400905,3732.015560,16000,0.233250,0.216608,0.435616,"mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, double*)"
+"GPU activities",18.310779,1986.462639,16000,0.124153,0.027232,0.391105,"compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)"
+"GPU activities",7.832241,849.688314,16000,0.053105,0.013216,0.169248,"compute_new_temperature_and_solidification(unsigned long, unsigned long, double, double, double, double, double, double, double, double, double*, double*, double*, double*, double*, double*, double*, double*, bool*)"
+"GPU activities",0.584125,63.369371,16000,0.003960,0.002688,0.008000,"emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, double*, float*)"
+"GPU activities",0.003131,0.339712,16,0.021232,0.012704,0.032320,"reduce_add(unsigned long, unsigned long, double*, float*)"
+"GPU activities",0.000042,0.004544,3,0.001514,0.001312,0.001824,"[CUDA memcpy HtoD]"
+
+==1431797== Unified Memory profiling result:
+"Device","Count","Avg Size","Min Size","Max Size","Total Size","Total Time",""
+"NVIDIA GeForce GTX 980 (0)",37,626.593750KB,4.000000KB,2.000000MB,22.640625MB,8.578464ms,"Host To Device"
+"NVIDIA GeForce GTX 980 (0)",48343,21.808594KB,4.000000KB,0.996094MB,1.005463GB,449.063776ms,"Device To Host"
+Total CPU Page faults: 16163

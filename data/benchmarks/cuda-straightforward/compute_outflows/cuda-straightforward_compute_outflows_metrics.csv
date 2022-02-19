@@ -1,0 +1,15 @@
+==1431848== NVPROF is profiling process 1431848, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-straightforward 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431848== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
+==1431848== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-straightforward 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1431848== Profiling result:
+==1431848== Metric result:
+"Device","Kernel","Invocations","Metric Name","Metric Description","Min","Max","Avg"
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"flop_count_dp","Floating Point Operations(Double Precision)",4842712,4842712,4842712
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"gld_transactions","Global Load Transactions",406962,406962,406962
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"gst_transactions","Global Store Transactions",61965,61965,61965
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"l2_read_transactions","L2 Read Transactions",180730,180730,180730
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"l2_write_transactions","L2 Write Transactions",129197,129197,129197
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"dram_read_transactions","Device Memory Read Transactions",57167,57167,57167
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"dram_write_transactions","Device Memory Write Transactions",34135,34135,34135
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"sysmem_read_bytes","System Memory Read Bytes",0,0,0
+"NVIDIA GeForce GTX 980 (0)","compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double)",1,"sysmem_write_bytes","System Memory Write Bytes",160,160,160
