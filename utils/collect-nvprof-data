@@ -21,7 +21,7 @@ make -j8
 mkdir -p data/benchmarks
 
 echo " # Run benchmarks"
-for v in version; do
+for v in $version; do
 
     echo "   + Running $v"
 
