@@ -42,7 +42,7 @@ CUDA_TILED_NO_HALO			:= sciara-fv2-cuda-tiled-no-halo
 
 DEFINES		:=
 CXXFLAGS	:=-O3 $(addprefix -D,$(DEFINES))
-CUFLAGS		:=-O3 -I src/cuda -gencode=arch=compute_52,code="compute_52" -fmad=false $(addprefix -D,$(DEFINES)) $(EXTRA_CUFLAGS)
+CUFLAGS		:=-O3 -I src/cuda -gencode=arch=compute_52,code="compute_52" -fmad=true --maxrregcount=64 $(addprefix -D,$(DEFINES)) $(EXTRA_CUFLAGS)
 
 
 all: $(SERIAL) $(PARALLEL) $(CUDA_STRAIGHTFORWARD) $(CUDA_TILED_HALO) $(CUDA_MULTI_GPU) $(CUDA_TILED_NO_HALO)
@@ -105,3 +105,19 @@ debug-cuda-multi-gpu: $(CUDA_MULTI_GPU)
 
 clean:
 	$(RM) $(SERIAL) $(PARALLEL) $(CUDA_STRAIGHTFORWARD) $(CUDA_TILED_HALO) $(CUDA_MULTI_GPU) $(CUDA_TILED_NO_HALO) $(OUTPUT_CONFIG)*
+
+
+
+METRICS 	?= flop_count_dp
+
+profile-cuda-straightforward: $(CUDA_STRAIGHTFORWARD)
+	nvprof --log-file roofline.txt --print-summary $(addprefix --kernels ,$(KERNELS)) $(addprefix -m ,$(METRICS)) ./$(CUDA_STRAIGHTFORWARD)
+
+profile-cuda-tiled-halo: $(CUDA_TILED_HALO)
+	nvprof --log-file roofline.txt --print-summary $(addprefix --kernels ,$(KERNELS)) $(addprefix -m ,$(METRICS)) ./$(CUDA_TILED_HALO)
+
+profile-cuda-tiled-no-halo: $(CUDA_TILED_NO_HALO)
+	nvprof --log-file roofline.txt --print-summary $(addprefix --kernels ,$(KERNELS)) $(addprefix -m ,$(METRICS)) ./$(CUDA_TILED_NO_HALO)
+
+profile-cuda-multi-gpu: $(CUDA_MULTI_GPU)
+	nvprof --log-file roofline.txt --print-summary $(addprefix --kernels ,$(KERNELS)) $(addprefix -m ,$(METRICS)) ./$(CUDA_MULTI_GPU)

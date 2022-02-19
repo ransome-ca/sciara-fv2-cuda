@@ -1,0 +1,46 @@
+#!/bin/sh
+
+INPUT_CONFIG="./data/2006/2006_000000000000.cfg"
+OUTPUT_CONFIG="./data/2006/output_2006"
+OUTPUT="./data/2006/output_2006_000000016000_Temperature.stt"
+STEPS="1000"
+REDUCE_INTERVL="1000"
+THICKNESS_THRESHOLD="1.0" 
+
+threads="4 8 16"
+metrics="flop_count_dp gld_transactions gst_transactions l2_read_transactions l2_write_transactions dram_read_transactions dram_write_transactions sysmem_read_bytes sysmem_write_bytes"
+kernels="emit_lava compute_outflows mass_balance compute_new_temperature_and_solidification"
+version="cuda-multi-gpu cuda-tiled-halo cuda-tiled-no-halo cuda-straightforward"
+
+echo "Running benchmarks"
+
+echo " # Prepare environment"
+make clean
+make -j8
+
+mkdir -p data/benchmarks
+
+echo " # Run benchmarks"
+for v in version; do
+
+    echo "   + Running $v"
+
+    for t in $threads; do
+
+        echo "     - Collect runtime with $t threads"
+        nvprof --print-gpu-summary --csv --log-file "./data/benchmarks/${v}_${t}_runtime.csv" $(pwd)/sciara-fv2-$v $t $INPUT_CONFIG $OUTPUT_CONFIG $STEPS $REDUCE_INTERVL $THICKNESS_THRESHOLD > /dev/null
+        md5sum data/2006/output_2006_000000016000_* > "./data/benchmarks/${v}_${t}_runtime.md5"
+
+    done
+
+    for k in $kernels; do
+        for m in $metrics; do
+
+            echo "     - Collect metrics with '$k' kernel and '$m' metric"
+            nvprof --kernels $k --metrics $m --csv --log-file "./data/benchmarks/${v}_${k}_${m}_metrics.csv" $(pwd)/sciara-fv2-$v 8 $INPUT_CONFIG $OUTPUT_CONFIG $STEPS $REDUCE_INTERVL $THICKNESS_THRESHOLD > /dev/null
+            md5sum data/2006/output_2006_000000016000_* > "./data/benchmarks/${v}_${k}_${m}_metrics.md5"
+
+        done
+    done
+
+done

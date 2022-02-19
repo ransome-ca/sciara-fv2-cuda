@@ -774,11 +774,12 @@ int main(int argc, char** argv) {
 
 #if defined(DEBUG)
         if(sciara->simulation->step % 100 == 0) {
-            fprintf(stderr, "\r[%08d]: %3d%% (%.2f s) [%f]", 
+            fprintf(stdout, "\r[%08d]: %3d%% (%.2f s) [%f]", 
                 sciara->simulation->step,
                 (int)(double(sciara->simulation->step) / 16000.0 * 100.0),
                 cl_timer.getTimeMilliseconds() / 1000.0f,
                 total_current_lava);
+            fflush(stdout);
         }
 #endif
 
