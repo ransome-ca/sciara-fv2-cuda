@@ -1,0 +1,7 @@
+#!/bin/sh
+
+versions='cuda-multi-gpu cuda-straightforward cuda-tiled-halo cuda-tiled-no-halo'
+
+for v in $versions; do
+    utils/plot_roofline.py -t $v -o data/rooflines/$v.png -i data/benchmarks
+done
