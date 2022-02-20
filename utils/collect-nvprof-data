@@ -8,9 +8,9 @@ REDUCE_INTERVL="1000"
 THICKNESS_THRESHOLD="1.0" 
 
 threads="8 16"
-metrics="flop_count_dp gld_transactions gst_transactions l2_read_transactions l2_write_transactions dram_read_transactions dram_write_transactions sysmem_read_bytes sysmem_write_bytes"
+metrics="flop_count_dp flop_count_sp flop_count_hp gld_transactions gst_transactions atomic_transactions local_load_transactions local_store_transactions shared_load_transactions shared_store_transactions l2_read_transactions l2_write_transactions dram_read_transactions dram_write_transactions "
 kernels="emit_lava compute_outflows mass_balance compute_new_temperature_and_solidification"
-version="cuda-multi-gpu cuda-tiled-halo cuda-tiled-no-halo cuda-straightforward"
+version="cuda-tiled-no-halo cuda-multi-gpu cuda-tiled-halo cuda-straightforward"
 
 echo "Running benchmarks"
 

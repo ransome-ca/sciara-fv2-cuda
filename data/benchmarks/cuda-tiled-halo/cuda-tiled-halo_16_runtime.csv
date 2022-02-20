@@ -1,20 +1,20 @@
-==1431484== NVPROF is profiling process 1431484, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
-==1431484== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
-==1431484== Profiling result:
+==1529524== NVPROF is profiling process 1529524, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1529524== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-halo 16 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1529524== Profiling result:
 "Type","Time(%)","Time","Calls","Avg","Min","Max","Name"
 ,%,ms,,ms,ms,ms,
-"GPU activities",48.103407,2800.218669,16000,0.175013,0.169344,0.385121,"mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)"
-"GPU activities",33.455855,1947.548305,16000,0.121721,0.036096,0.414177,"compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double, unsigned long)"
-"GPU activities",13.473121,784.303801,16000,0.049018,0.013888,0.144576,"compute_new_temperature_and_solidification(unsigned long, unsigned long, double, double, double, double, double, double, double, double, double*, double*, double*, double*, double*, bool*)"
-"GPU activities",3.915637,227.938940,16000,0.014246,0.009984,0.025728,"prepare_halo(double*, double*, int, int)"
-"GPU activities",1.039007,60.483148,16000,0.003780,0.002464,0.009568,"emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, float*)"
-"GPU activities",0.011732,0.682944,16,0.042684,0.041248,0.045728,"reduce_add(unsigned long, double*, float*)"
-"GPU activities",0.000730,0.042496,17,0.002499,0.002336,0.003264,"[CUDA memset]"
-"GPU activities",0.000435,0.025312,17,0.001488,0.001376,0.001920,"[CUDA memcpy DtoH]"
-"GPU activities",0.000078,0.004512,3,0.001504,0.001312,0.001856,"[CUDA memcpy HtoD]"
+"GPU activities",48.100996,2757.310717,16000,0.172331,0.168289,0.362497,"mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)"
+"GPU activities",33.429485,1916.290382,16000,0.119768,0.033760,0.201569,"compute_outflows(unsigned long, unsigned long, double*, double*, double*, double*, double, double, double, double, double, unsigned long)"
+"GPU activities",13.481415,772.800011,16000,0.048300,0.012800,0.132385,"compute_new_temperature_and_solidification(unsigned long, unsigned long, double, double, double, double, double, double, double, double, double*, double*, double*, double*, double*, bool*)"
+"GPU activities",3.935069,225.571371,16000,0.014098,0.009152,0.017536,"prepare_halo(double*, double*, int, int)"
+"GPU activities",1.040208,59.628213,16000,0.003726,0.002304,0.007552,"emit_lava(unsigned long, unsigned long, double, double, double, double, double, double*, double*, float*)"
+"GPU activities",0.011575,0.663521,16,0.041470,0.041248,0.041792,"reduce_add(unsigned long, double*, float*)"
+"GPU activities",0.000733,0.042016,17,0.002471,0.002336,0.003264,"[CUDA memset]"
+"GPU activities",0.000439,0.025184,17,0.001481,0.001376,0.001888,"[CUDA memcpy DtoH]"
+"GPU activities",0.000080,0.004576,3,0.001525,0.001312,0.001888,"[CUDA memcpy HtoD]"
 
-==1431484== Unified Memory profiling result:
+==1529524== Unified Memory profiling result:
 "Device","Count","Avg Size","Min Size","Max Size","Total Size","Total Time",""
-"NVIDIA GeForce GTX 980 (0)",21,1.074777MB,128.000000KB,2.000000MB,22.570312MB,8.513728ms,"Host To Device"
-"NVIDIA GeForce GTX 980 (0)",295,99.253906KB,4.000000KB,0.996094MB,28.593750MB,11.540160ms,"Device To Host"
+"NVIDIA GeForce GTX 980 (0)",21,1.074777MB,128.000000KB,2.000000MB,22.570312MB,8.582272ms,"Host To Device"
+"NVIDIA GeForce GTX 980 (0)",295,99.253906KB,4.000000KB,0.996094MB,28.593750MB,11.529856ms,"Device To Host"
 Total CPU Page faults: 147

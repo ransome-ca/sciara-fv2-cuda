@@ -1,15 +1,19 @@
-==1431726== NVPROF is profiling process 1431726, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
-==1431726== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
-==1431726== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
-==1431726== Profiling result:
-==1431726== Metric result:
+==1528909== NVPROF is profiling process 1528909, command: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1528909== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
+==1528909== Profiling application: /home/user30/sciara-fv2-cuda/sciara-fv2-cuda-tiled-no-halo 8 ./data/2006/2006_000000000000.cfg ./data/2006/output_2006 1000 1000 1.0
+==1528909== Profiling result:
+==1528909== Metric result:
 "Device","Kernel","Invocations","Metric Name","Metric Description","Min","Max","Avg"
 "NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"flop_count_dp","Floating Point Operations(Double Precision)",8835810,8835810,8835810
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"flop_count_sp","Floating Point Operations(Single Precision)",0,0,0
 "NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"gld_transactions","Global Load Transactions",4307074,4307074,4307074
 "NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"gst_transactions","Global Store Transactions",15478,15478,15478
-"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"l2_read_transactions","L2 Read Transactions",1720737,1720737,1720737
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"atomic_transactions","Atomic Transactions",0,0,0
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"local_load_transactions","Local Load Transactions",0,0,0
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"local_store_transactions","Local Store Transactions",0,0,0
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"shared_load_transactions","Shared Load Transactions",98298,98298,98298
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"shared_store_transactions","Shared Store Transactions",12384,12384,12384
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"l2_read_transactions","L2 Read Transactions",1720673,1720673,1720673
 "NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"l2_write_transactions","L2 Write Transactions",15484,15484,15484
-"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"dram_read_transactions","Device Memory Read Transactions",533855,533855,533855
-"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"dram_write_transactions","Device Memory Write Transactions",29411,29411,29411
-"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"sysmem_read_bytes","System Memory Read Bytes",0,0,0
-"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"sysmem_write_bytes","System Memory Write Bytes",160,160,160
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"dram_read_transactions","Device Memory Read Transactions",512064,512064,512064
+"NVIDIA GeForce GTX 980 (0)","mass_balance(unsigned long, unsigned long, double*, double*, double*, double*, unsigned long)",1,"dram_write_transactions","Device Memory Write Transactions",32280,32280,32280
