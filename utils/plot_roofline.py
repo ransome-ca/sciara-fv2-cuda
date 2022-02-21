@@ -182,7 +182,7 @@ for version in db:
 print('Plotting data')
 
 
-colors = ['b','g','r','y','m','c']
+colors = ['#0b84a5','#9dd866','#ca472f','y','m','c']
 styles = ['o','D','s','o','D',">","<","*","h","H","+","1","2","3","4","8","p","d","|","_",".",","]
 
 
