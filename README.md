@@ -2,7 +2,9 @@
 [![License: GPL](https://img.shields.io/badge/License-GPL-blue.svg)](/LICENSE)  
 *SCIARA is a deterministic Macroscopic Cellular Automata model for simulating lava flows.*
   
-In this paper we presents a CUDA parallelization of the deterministic Macroscopic Cellular Automata model SCIARA for simulating lavaflows. Furthermore, we present the results of an experimental analysiswe conducted in order to evaluate performance-wise impact. Specifically, given benchmarks of our parallel implementation with respect toserial algorithm, we observe how parallel implementation is very com-petitive and even faster.
+In this paper we presents a CUDA parallelization of the deterministic Macroscopic Cellular Automata model SCIARA for simulating lavaflows. Furthermore, we present the results of an experimental analysiswe conducted in order to evaluate performance-wise impact. Specifically, given benchmarks of our parallel implementation with respect toserial algorithm, we observe how parallel implementation is very com-petitive and even faster.  
+  
+:books: **Report:** [HERE](/data/report/report-sciara-fv2-natale-perfidio.pdf)
 
 ## :zap: How to run?
 
