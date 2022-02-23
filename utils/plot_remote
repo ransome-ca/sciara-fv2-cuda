@@ -1,0 +1,4 @@
+#!/bin/sh
+
+(ssh user30@160.97.63.93 /bin/cat /home/user30/sciara-fv2-cuda/data/2006/output_2006_000000016000_$1.stt) > /tmp/graph.stt
+utils/plot_stt.py /tmp/graph.stt &
