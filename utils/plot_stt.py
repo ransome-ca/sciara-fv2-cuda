@@ -26,6 +26,6 @@ fd = np.array(fd)
 
 # else:
 
-plt.imshow(fd, cmap='hot_r', interpolation='nearest')
+plt.imshow(fd, cmap='terrain', interpolation='nearest')
 plt.colorbar()
 plt.show()
